@@ -298,6 +298,115 @@ export default function NewProjectPage() {
         return;
       }
 
+      // DEBUG: Log the received polyhouses structure
+      console.log('=== NEW PROJECT POLYHOUSE DEBUG ===');
+      console.log('Received polyhouses:', data.planningResult.polyhouses?.length || 0);
+      if (data.planningResult.polyhouses && data.planningResult.polyhouses.length > 0) {
+        console.log('Sample polyhouse:', {
+          id: data.planningResult.polyhouses[0].id,
+          blocksCount: data.planningResult.polyhouses[0].blocks?.length,
+          hasBlocks: !!data.planningResult.polyhouses[0].blocks,
+          hasBounds: !!data.planningResult.polyhouses[0].bounds,
+          firstBlock: data.planningResult.polyhouses[0].blocks?.[0],
+          hasCorners: data.planningResult.polyhouses[0].blocks?.[0]?.corners?.length > 0,
+          cornersLength: data.planningResult.polyhouses[0].blocks?.[0]?.corners?.length,
+          sampleCorner: data.planningResult.polyhouses[0].blocks?.[0]?.corners?.[0],
+        });
+
+        // CRITICAL FIX: Regenerate corners for blocks that don't have them
+        let needsRegeneration = false;
+        data.planningResult.polyhouses.forEach((polyhouse: any) => {
+          if (!polyhouse.blocks || polyhouse.blocks.length === 0) return;
+
+          // Check if any block is missing corners
+          const hasMissingCorners = polyhouse.blocks.some((block: any) =>
+            !block.corners || block.corners.length === 0
+          );
+
+          if (hasMissingCorners) {
+            needsRegeneration = true;
+            console.warn(`Polyhouse ${polyhouse.id} has blocks missing corners, regenerating...`);
+
+            // Calculate polyhouse center from bounds (geographic coordinates)
+            if (!polyhouse.bounds || polyhouse.bounds.length === 0) {
+              console.error(`Cannot regenerate corners: polyhouse ${polyhouse.id} has no bounds`);
+              return;
+            }
+
+            const centerLng = polyhouse.bounds.reduce((sum: number, p: any) => sum + p.x, 0) / polyhouse.bounds.length;
+            const centerLat = polyhouse.bounds.reduce((sum: number, p: any) => sum + p.y, 0) / polyhouse.bounds.length;
+
+            polyhouse.blocks.forEach((block: any) => {
+              if (!block.corners || block.corners.length === 0) {
+                const angleRad = (block.rotation || 0) * Math.PI / 180;
+
+                // Block position is in LOCAL coordinates (meters, already rotated)
+                const blockPosX = block.position?.x || 0;
+                const blockPosY = block.position?.y || 0;
+
+                // Create the 4 corners of the block (standard 8m x 4m rectangle)
+                const localCorners = [
+                  { x: 0, y: 0 },
+                  { x: block.width, y: 0 },
+                  { x: block.width, y: block.height },
+                  { x: 0, y: block.height },
+                ];
+
+                // Rotate each corner and add to block position (all in local space)
+                const rotatedLocalCorners = localCorners.map((corner: any) => {
+                  const rotatedX = corner.x * Math.cos(angleRad) - corner.y * Math.sin(angleRad);
+                  const rotatedY = corner.x * Math.sin(angleRad) + corner.y * Math.cos(angleRad);
+
+                  return {
+                    x: blockPosX + rotatedX,
+                    y: blockPosY + rotatedY,
+                  };
+                });
+
+                // Convert from local meters to geographic coordinates
+                block.corners = rotatedLocalCorners.map((corner: any) => {
+                  const cornerLat = centerLat + corner.y / 111320;
+                  const cornerLng = centerLng + corner.x / (111320 * Math.cos(centerLat * Math.PI / 180));
+
+                  return {
+                    x: cornerLng,
+                    y: cornerLat,
+                  };
+                });
+
+                console.log(`  ✓ Regenerated ${block.corners.length} corners for block ${block.id}`);
+              }
+            });
+          }
+        });
+
+        if (needsRegeneration) {
+          console.log('✓ Finished regenerating corners for all blocks');
+        }
+      }
+
+      // Check for terrain warnings BEFORE rendering polyhouses
+      const terrainInfo = data.planningResult.terrainAnalysis;
+      if (terrainInfo && (terrainInfo.warnings?.length > 0 || terrainInfo.restrictedZones?.length > 0)) {
+        // Show warning dialog and let user decide
+        const warningsText = terrainInfo.warnings?.join('\n') || '';
+        const zonesText = terrainInfo.restrictedZones?.map((z: any) => `• ${z.type}: ${z.reason}`).join('\n') || '';
+
+        const userConfirmed = confirm(
+          `⚠️ TERRAIN WARNINGS DETECTED\n\n` +
+          `${warningsText}\n\n` +
+          `Restricted zones found:\n${zonesText}\n\n` +
+          `Do you want to proceed with building polyhouses in this area?\n\n` +
+          `Click OK to continue, or Cancel to redraw the boundary.`
+        );
+
+        if (!userConfirmed) {
+          setLoading(false);
+          alert('Please redraw the land boundary to avoid restricted zones.');
+          return;
+        }
+      }
+
       if (!data.planningResult.polyhouses || data.planningResult.polyhouses.length === 0) {
         const terrainInfo = data.planningResult.terrainAnalysis;
         let message = 'No polyhouses could be placed on this land area.\n\n';

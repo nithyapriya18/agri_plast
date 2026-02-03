@@ -7,6 +7,7 @@ import { PlanningResult, Polyhouse, ConversationMessage } from '@shared/types';
 import QuotationPanel from '@/components/QuotationPanel';
 import EnhancedChatInterface from '@/components/EnhancedChatInterface';
 import OptimizationFactorsPanel from '@/components/OptimizationFactorsPanel';
+import { VersionHistory } from '@/components/VersionHistory';
 import { createClient } from '@/lib/supabase/client';
 import { Loader2, Download } from 'lucide-react';
 import { generateProjectPDF } from '@/lib/pdfExport';
@@ -54,6 +55,7 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
   const [planningResultId, setPlanningResultId] = useState<string | null>(null);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [showCloseConfirmation, setShowCloseConfirmation] = useState(false);
+  const [currentVersion, setCurrentVersion] = useState<number>(1);
 
   useEffect(() => {
     loadProject();
@@ -87,6 +89,11 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
       if (data && (!data.polyhouses || !Array.isArray(data.polyhouses))) {
         console.warn('⚠️ Polyhouses is null/undefined or not an array. Setting to empty array.');
         data.polyhouses = [];
+      }
+
+      // Load version number
+      if (data && data.version) {
+        setCurrentVersion(data.version);
       }
 
       // Log sample polyhouse structure if available
@@ -464,6 +471,11 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
     alert('Snapshot restore is not yet supported for saved projects. Please use the chat to request changes.');
   };
 
+  const handleSelectVersion = (versionId: string) => {
+    // Navigate to the selected version
+    router.push(`/projects/${versionId}`);
+  };
+
   const handleExportPDF = async () => {
     if (!project || !planningResult) {
       alert('Unable to export. Project data is not available.');
@@ -574,30 +586,44 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
         alert('New project created successfully. Redirecting to new project...');
         router.push(`/projects/${data.id}`);
       } else {
-        // Update existing project
-        const { error } = await supabase
-          .from('projects')
-          .update({
-            land_boundary: boundaryToUse,
-            land_area_sqm: optimizationResult.metadata.totalLandArea,
-            polyhouse_count: optimizationResult.metadata.numberOfPolyhouses,
-            total_coverage_sqm: optimizationResult.metadata.totalPolyhouseArea,
-            utilization_percentage: optimizationResult.metadata.utilizationPercentage,
-            estimated_cost: optimizationResult.quotation?.totalCost || 0,
-            polyhouses: optimizationResult.polyhouses,
-            quotation: optimizationResult.quotation,
-            terrain_analysis: optimizationResult.terrainAnalysis,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', project.id);
+        // Create new version (don't leave the page, stay on the same project with new version)
+        const versionResponse = await fetch(
+          `${process.env.NEXT_PUBLIC_API_URL}/api/projects/${project.id}/create-version`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              planningResult: {
+                landArea: {
+                  name: project.location_name || 'Land Area',
+                  coordinates: boundaryToUse,
+                  area: optimizationResult.metadata.totalLandArea,
+                },
+                polyhouses: optimizationResult.polyhouses,
+                configuration: project.configuration,
+                quotation: optimizationResult.quotation,
+                metadata: optimizationResult.metadata,
+                terrainAnalysis: optimizationResult.terrainAnalysis,
+              },
+              quotation: optimizationResult.quotation,
+              versionName: `Modified boundary - ${new Date().toLocaleString()}`,
+            }),
+          }
+        );
 
-        if (error) throw error;
+        if (!versionResponse.ok) {
+          const errorData = await versionResponse.json();
+          throw new Error(errorData.error || 'Failed to create version');
+        }
 
-        alert('Project saved successfully');
-        setEditMode(false);
-        setModifiedBoundary(null);
-        setHasUnsavedChanges(false);
-        await loadProject(); // Reload the project to show updated data
+        const versionData = await versionResponse.json();
+
+        // Update current version number and navigate to the new version
+        setCurrentVersion(versionData.version);
+        alert(`Saved as Version ${versionData.version}`);
+
+        // Navigate to the new version (this will reload the project with the new version)
+        router.push(`/projects/${versionData.project.id}`);
       }
     } catch (error) {
       console.error('Error saving project:', error);
@@ -609,14 +635,14 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
 
   const getStatusBadge = (status: string) => {
     const styles = {
-      draft: 'bg-gray-100 text-gray-700',
-      quoted: 'bg-blue-100 text-blue-700',
-      approved: 'bg-green-100 text-green-700',
-      installed: 'bg-purple-100 text-purple-700',
+      draft: 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300',
+      quoted: 'bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300',
+      approved: 'bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300',
+      installed: 'bg-purple-100 dark:bg-purple-900 text-purple-700 dark:text-purple-300',
     };
 
     return (
-      <span className={`px-3 py-1 rounded-full text-sm font-medium ${styles[status as keyof typeof styles] || styles.draft}`}>
+      <span className={`px-3 py-1 rounded-full text-sm font-medium transition-colors ${styles[status as keyof typeof styles] || styles.draft}`}>
         {status.charAt(0).toUpperCase() + status.slice(1)}
       </span>
     );
@@ -662,10 +688,10 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 transition-colors">
         <div className="text-center">
           <Loader2 className="w-12 h-12 animate-spin text-green-600 mx-auto mb-4" />
-          <p className="text-gray-600">Loading project...</p>
+          <p className="text-gray-600 dark:text-gray-400 transition-colors">Loading project...</p>
         </div>
       </div>
     );
@@ -673,12 +699,12 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
 
   if (!project || !planningResult) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 transition-colors">
         <div className="text-center">
-          <p className="text-gray-600">Project not found</p>
+          <p className="text-gray-600 dark:text-gray-400 transition-colors">Project not found</p>
           <button
             onClick={() => router.push('/dashboard')}
-            className="mt-4 text-green-600 hover:text-green-700"
+            className="mt-4 text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 transition-colors"
           >
             ← Back to Dashboard
           </button>
@@ -688,16 +714,16 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
   }
 
   return (
-    <main className="flex h-screen flex-col bg-white">
+    <main className="flex h-screen flex-col bg-white dark:bg-gray-900 transition-colors">
       {/* Header */}
-      <header className="bg-white shadow-sm border-b border-gray-200 z-10">
+      <header className="bg-white dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700 z-10 transition-colors">
         <div className="px-6 py-4">
           <div className="flex items-center justify-between">
             <div>
               <div className="flex items-center gap-3">
                 <div>
-                  <h1 className="text-2xl font-bold text-gray-900">{project.name}</h1>
-                  <p className="text-sm text-gray-500 mt-1">
+                  <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100 transition-colors">{project.name}</h1>
+                  <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 transition-colors">
                     {project.location_name} • Created {new Date(project.created_at).toLocaleDateString()}
                   </p>
                 </div>
@@ -706,6 +732,12 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
 
             <div className="flex items-center gap-4">
               {getStatusBadge(project.status)}
+
+              <VersionHistory
+                projectId={project.id}
+                currentVersion={currentVersion}
+                onSelectVersion={handleSelectVersion}
+              />
 
               <button
                 onClick={() => setShowQuotation(!showQuotation)}
@@ -725,21 +757,21 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
 
           {/* Stats */}
           <div className="grid grid-cols-4 gap-4 mt-4">
-            <div className="bg-gray-50 rounded-lg p-3">
-              <p className="text-sm text-gray-600">Land Area</p>
-              <p className="text-lg font-bold text-gray-900">{project.land_area_sqm.toFixed(0)} m²</p>
+            <div className="bg-gray-50 dark:bg-gray-900 rounded-lg p-3 transition-colors">
+              <p className="text-sm text-gray-600 dark:text-gray-400 transition-colors">Land Area</p>
+              <p className="text-lg font-bold text-gray-900 dark:text-gray-100 transition-colors">{project.land_area_sqm.toFixed(0)} m²</p>
             </div>
-            <div className="bg-gray-50 rounded-lg p-3">
-              <p className="text-sm text-gray-600">Polyhouses</p>
-              <p className="text-lg font-bold text-gray-900">{project.polyhouse_count}</p>
+            <div className="bg-gray-50 dark:bg-gray-900 rounded-lg p-3 transition-colors">
+              <p className="text-sm text-gray-600 dark:text-gray-400 transition-colors">Polyhouses</p>
+              <p className="text-lg font-bold text-gray-900 dark:text-gray-100 transition-colors">{project.polyhouse_count}</p>
             </div>
-            <div className="bg-gray-50 rounded-lg p-3">
-              <p className="text-sm text-gray-600">Utilization</p>
-              <p className="text-lg font-bold text-gray-900">{project.utilization_percentage.toFixed(1)}%</p>
+            <div className="bg-gray-50 dark:bg-gray-900 rounded-lg p-3 transition-colors">
+              <p className="text-sm text-gray-600 dark:text-gray-400 transition-colors">Utilization</p>
+              <p className="text-lg font-bold text-gray-900 dark:text-gray-100 transition-colors">{project.utilization_percentage.toFixed(1)}%</p>
             </div>
-            <div className="bg-gray-50 rounded-lg p-3">
-              <p className="text-sm text-gray-600">Estimated Cost</p>
-              <p className="text-lg font-bold text-gray-900">₹{project.estimated_cost.toLocaleString('en-IN')}</p>
+            <div className="bg-gray-50 dark:bg-gray-900 rounded-lg p-3 transition-colors">
+              <p className="text-sm text-gray-600 dark:text-gray-400 transition-colors">Estimated Cost</p>
+              <p className="text-lg font-bold text-gray-900 dark:text-gray-100 transition-colors">₹{project.estimated_cost.toLocaleString('en-IN')}</p>
             </div>
           </div>
         </div>
@@ -773,9 +805,9 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
           />
         </div>
 
-        {/* Actions Overlay */}
-        <div className="absolute bottom-4 left-4 z-10 bg-white rounded-lg shadow-lg p-4 space-y-3">
-          <h3 className="font-semibold text-gray-900">Actions</h3>
+        {/* Actions Overlay - moved to bottom-right to avoid overlap with Optimization Factors Panel */}
+        <div className="absolute bottom-4 right-4 z-10 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 p-4 space-y-3 w-64 transition-colors">
+          <h3 className="font-semibold text-gray-900 dark:text-gray-100 transition-colors">Actions</h3>
 
           {!editMode ? (
             <>
@@ -802,12 +834,12 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
               </button>
 
               <div>
-                <label className="block text-sm text-gray-600 mb-2">Update Status</label>
+                <label className="block text-sm text-gray-600 dark:text-gray-400 mb-2 transition-colors">Update Status</label>
                 <select
                   value={project.status}
                   onChange={(e) => handleStatusUpdate(e.target.value)}
                   disabled={statusUpdating}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent text-sm"
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg focus:ring-2 focus:ring-green-500 dark:focus:ring-green-400 focus:border-transparent text-sm transition-colors"
                 >
                   <option value="draft">Draft</option>
                   <option value="quoted">Quoted</option>
@@ -825,7 +857,7 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
             </>
           ) : (
             <>
-              <p className="text-sm text-gray-600 mb-2">Edit mode enabled. Modify the land boundary on the map.</p>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-2 transition-colors">Edit mode enabled. Modify the land boundary on the map.</p>
 
               <button
                 onClick={() => setEditMode(false)}
@@ -856,12 +888,12 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
 
         {/* Quotation Panel */}
         {showQuotation && (
-          <div className="absolute top-4 right-4 w-96 max-h-[calc(100vh-2rem)] bg-white rounded-lg shadow-2xl border border-gray-200 overflow-hidden z-20 flex flex-col">
-            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 bg-gray-50">
-              <h3 className="font-semibold text-gray-900">Quotation</h3>
+          <div className="absolute top-4 right-4 w-96 max-h-[calc(100vh-2rem)] bg-white dark:bg-gray-800 rounded-lg shadow-2xl border border-gray-200 dark:border-gray-700 overflow-hidden z-20 flex flex-col transition-colors">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 transition-colors">
+              <h3 className="font-semibold text-gray-900 dark:text-gray-100 transition-colors">Quotation</h3>
               <button
                 onClick={() => setShowQuotation(false)}
-                className="text-gray-500 hover:text-gray-700 transition-colors"
+                className="text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 transition-colors"
               >
                 ×
               </button>
@@ -874,12 +906,12 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
 
         {/* Chat Interface */}
         {showChat && planningResult && (
-          <div className="absolute bottom-4 right-4 w-96 h-[600px] bg-white rounded-lg shadow-2xl border border-gray-200 overflow-hidden z-20 flex flex-col">
-            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 bg-green-600 text-white">
+          <div className="absolute bottom-4 right-4 w-96 h-[600px] bg-white dark:bg-gray-800 rounded-lg shadow-2xl border border-gray-200 dark:border-gray-700 overflow-hidden z-20 flex flex-col transition-colors">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-700 bg-green-600 dark:bg-green-700 text-white transition-colors">
               <h3 className="font-semibold">Chat Assistant</h3>
               <button
                 onClick={() => setShowChat(false)}
-                className="text-white hover:text-gray-200 transition-colors"
+                className="text-white hover:text-gray-200 dark:hover:text-gray-300 transition-colors"
               >
                 ×
               </button>
@@ -897,28 +929,28 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
 
         {/* Close Confirmation Modal */}
         {showCloseConfirmation && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-lg shadow-2xl p-6 max-w-md w-full mx-4">
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">Unsaved Changes</h3>
-              <p className="text-gray-600 mb-6">
+          <div className="fixed inset-0 bg-black bg-opacity-50 dark:bg-opacity-70 flex items-center justify-center z-50">
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-2xl p-6 max-w-md w-full mx-4 transition-colors">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-2 transition-colors">Unsaved Changes</h3>
+              <p className="text-gray-600 dark:text-gray-400 mb-6 transition-colors">
                 You have unsaved changes. Do you want to save them before closing?
               </p>
               <div className="flex gap-3 justify-end">
                 <button
                   onClick={() => setShowCloseConfirmation(false)}
-                  className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors font-medium"
+                  className="px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors font-medium"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={() => handleConfirmClose(false)}
-                  className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors font-medium"
+                  className="px-4 py-2 bg-red-600 dark:bg-red-700 text-white rounded-lg hover:bg-red-700 dark:hover:bg-red-600 transition-colors font-medium"
                 >
                   Discard
                 </button>
                 <button
                   onClick={() => handleConfirmClose(true)}
-                  className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium"
+                  className="px-4 py-2 bg-green-600 dark:bg-green-700 text-white rounded-lg hover:bg-green-700 dark:hover:bg-green-600 transition-colors font-medium"
                 >
                   Save & Close
                 </button>

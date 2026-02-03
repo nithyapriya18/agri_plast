@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 import { Download, Upload } from 'lucide-react';
 import ExcelJS from 'exceljs';
+import { ThemeToggle } from '@/components/ThemeToggle';
 
 type PricingTier = 'economy' | 'standard' | 'premium';
 
@@ -308,52 +309,53 @@ export default function PricingConfigPage() {
   };
 
   const categories = [
-    { id: 'business', name: 'Business Settings', icon: '💼' },
-    { id: 'structure', name: 'Structure Materials', icon: '🏗️' },
-    { id: 'covering', name: 'Covering Materials', icon: '🎪' },
-    { id: 'climateControl', name: 'Climate Control', icon: '🌡️' },
-    { id: 'irrigation', name: 'Irrigation Systems', icon: '💧' },
-    { id: 'flooring', name: 'Flooring & Internal', icon: '🔲' },
-    { id: 'access', name: 'Doors & Access', icon: '🚪' },
-    { id: 'automation', name: 'Automation', icon: '🤖' },
-    { id: 'labor', name: 'Labor & Services', icon: '👷' },
-    { id: 'logistics', name: 'Transportation', icon: '🚚' },
+    { id: 'business', name: 'Business Settings' },
+    { id: 'structure', name: 'Structure Materials' },
+    { id: 'covering', name: 'Covering Materials' },
+    { id: 'climateControl', name: 'Climate Control' },
+    { id: 'irrigation', name: 'Irrigation Systems' },
+    { id: 'flooring', name: 'Flooring & Internal' },
+    { id: 'access', name: 'Doors & Access' },
+    { id: 'automation', name: 'Automation' },
+    { id: 'labor', name: 'Labor & Services' },
+    { id: 'logistics', name: 'Transportation' },
   ];
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 transition-colors">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Loading pricing configuration...</p>
+          <p className="mt-4 text-gray-600 dark:text-gray-400 transition-colors">Loading pricing configuration...</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 transition-colors">
       {/* Header */}
-      <header className="bg-white shadow-sm border-b border-gray-200">
+      <header className="bg-white dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700 transition-colors">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <Link href="/settings" className="p-2 hover:bg-gray-100 rounded-lg">
-              <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <Link href="/dashboard" className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors">
+              <svg className="w-5 h-5 text-gray-600 dark:text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
               </svg>
             </Link>
-            <div className="p-2 bg-green-600 rounded-lg">
+            <div className="p-2 bg-green-600 dark:bg-green-700 rounded-lg transition-colors">
               <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
             </div>
             <div>
-              <h1 className="text-xl font-bold text-gray-900">Pricing Configuration</h1>
-              <p className="text-sm text-gray-500">Manage materials, labor, and service costs</p>
+              <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100 transition-colors">Pricing Configuration</h1>
+              <p className="text-sm text-gray-500 dark:text-gray-400 transition-colors">Manage materials, labor, and service costs</p>
             </div>
           </div>
 
           <div className="flex items-center gap-4">
+            <ThemeToggle />
             <input
               ref={fileInputRef}
               type="file"
@@ -377,11 +379,11 @@ export default function PricingConfigPage() {
             </button>
             <Link
               href="/dashboard"
-              className="text-gray-600 hover:text-gray-900"
+              className="text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 transition-colors"
             >
               Dashboard
             </Link>
-            <span className="text-sm text-gray-600">{user?.email}</span>
+            <span className="text-sm text-gray-600 dark:text-gray-300 transition-colors">{user?.email}</span>
           </div>
         </div>
       </header>
@@ -390,20 +392,19 @@ export default function PricingConfigPage() {
         <div className="grid grid-cols-12 gap-6">
           {/* Sidebar */}
           <div className="col-span-3">
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
-              <h3 className="text-sm font-semibold text-gray-900 mb-3">Categories</h3>
+            <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-4 transition-colors">
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-3 transition-colors">Categories</h3>
               <nav className="space-y-1">
                 {categories.map((category) => (
                   <button
                     key={category.id}
                     onClick={() => setActiveCategory(category.id)}
-                    className={`w-full text-left px-3 py-2 rounded-lg text-sm flex items-center gap-2 transition-colors ${
+                    className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${
                       activeCategory === category.id
-                        ? 'bg-green-50 text-green-700 font-medium'
-                        : 'text-gray-700 hover:bg-gray-50'
+                        ? 'bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-400 font-medium'
+                        : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'
                     }`}
                   >
-                    <span>{category.icon}</span>
                     <span>{category.name}</span>
                   </button>
                 ))}
@@ -415,12 +416,12 @@ export default function PricingConfigPage() {
           <div className="col-span-9">
             {/* Business Settings */}
             {activeCategory === 'business' && (
-              <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-                <h2 className="text-xl font-bold text-gray-900 mb-6">Business Settings</h2>
+              <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6 transition-colors">
+                <h2 className="text-xl font-bold text-gray-900 dark:text-gray-100 mb-6 transition-colors">Business Settings</h2>
 
                 {/* Pricing Tier Selection */}
                 <div className="mb-8">
-                  <label className="block text-sm font-medium text-gray-700 mb-3">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3 transition-colors">
                     Default Pricing Tier
                   </label>
                   <div className="grid grid-cols-3 gap-4">
@@ -430,11 +431,11 @@ export default function PricingConfigPage() {
                         onClick={() => setSettings({ ...settings, pricingTier: tier })}
                         className={`p-4 rounded-lg border-2 text-center transition-all ${
                           settings.pricingTier === tier
-                            ? 'border-green-600 bg-green-50'
-                            : 'border-gray-200 hover:border-gray-300'
+                            ? 'border-green-600 bg-green-50 dark:bg-green-900/30 dark:border-green-500'
+                            : 'border-gray-200 dark:border-gray-600 hover:border-gray-300 dark:hover:border-gray-500'
                         }`}
                       >
-                        <div className="font-semibold text-gray-900 capitalize mb-1">{tier}</div>
+                        <div className="font-semibold text-gray-900 dark:text-gray-100 capitalize mb-1 transition-colors">{tier}</div>
                         <div className="text-xs text-gray-500">
                           {tier === 'economy' && 'Cost-effective materials'}
                           {tier === 'standard' && 'Balanced quality & cost'}
@@ -448,7 +449,7 @@ export default function PricingConfigPage() {
                 {/* Business Percentages */}
                 <div className="space-y-6">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 transition-colors">
                       Service Charge (%)
                       <span className="ml-2 text-xs text-gray-500">Applied to material cost</span>
                     </label>
@@ -459,12 +460,12 @@ export default function PricingConfigPage() {
                       onChange={(e) =>
                         setSettings({ ...settings, serviceChargePercentage: parseFloat(e.target.value) })
                       }
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                      className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg focus:ring-2 focus:ring-green-500 dark:focus:ring-green-400 focus:border-green-500 transition-colors"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 transition-colors">
                       Profit Margin (%)
                       <span className="ml-2 text-xs text-gray-500">Applied to subtotal</span>
                     </label>
@@ -475,12 +476,12 @@ export default function PricingConfigPage() {
                       onChange={(e) =>
                         setSettings({ ...settings, profitMarginPercentage: parseFloat(e.target.value) })
                       }
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                      className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg focus:ring-2 focus:ring-green-500 dark:focus:ring-green-400 focus:border-green-500 transition-colors"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 transition-colors">
                       GST (%)
                       <span className="ml-2 text-xs text-gray-500">Goods and Services Tax</span>
                     </label>
@@ -491,12 +492,12 @@ export default function PricingConfigPage() {
                       onChange={(e) =>
                         setSettings({ ...settings, gstPercentage: parseFloat(e.target.value) })
                       }
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                      className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg focus:ring-2 focus:ring-green-500 dark:focus:ring-green-400 focus:border-green-500 transition-colors"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 transition-colors">
                       Transportation Cost (₹/km/ton)
                     </label>
                     <input
@@ -506,12 +507,12 @@ export default function PricingConfigPage() {
                       onChange={(e) =>
                         setSettings({ ...settings, transportationCostPerKm: parseFloat(e.target.value) })
                       }
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                      className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg focus:ring-2 focus:ring-green-500 dark:focus:ring-green-400 focus:border-green-500 transition-colors"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 transition-colors">
                       Installation Labor Rate (₹/sqm)
                     </label>
                     <input
@@ -521,7 +522,7 @@ export default function PricingConfigPage() {
                       onChange={(e) =>
                         setSettings({ ...settings, installationLaborRate: parseFloat(e.target.value) })
                       }
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                      className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg focus:ring-2 focus:ring-green-500 dark:focus:ring-green-400 focus:border-green-500 transition-colors"
                     />
                   </div>
                 </div>
@@ -530,27 +531,27 @@ export default function PricingConfigPage() {
 
             {/* Material Categories - NOW EDITABLE */}
             {activeCategory !== 'business' && customPricing && customPricing[activeCategory] && (
-              <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-                <h2 className="text-xl font-bold text-gray-900 mb-6 capitalize">
+              <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6 transition-colors">
+                <h2 className="text-xl font-bold text-gray-900 dark:text-gray-100 mb-6 capitalize transition-colors">
                   {categories.find((c) => c.id === activeCategory)?.name}
                 </h2>
 
                 <div className="overflow-x-auto">
                   <table className="min-w-full">
-                    <thead className="bg-gray-50">
+                    <thead className="bg-gray-50 dark:bg-gray-900 transition-colors">
                       <tr>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Item</th>
-                        <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Economy</th>
-                        <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Standard</th>
-                        <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Premium</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Unit</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase transition-colors">Item</th>
+                        <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase transition-colors">Economy</th>
+                        <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase transition-colors">Standard</th>
+                        <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase transition-colors">Premium</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase transition-colors">Unit</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-gray-200">
+                    <tbody className="divide-y divide-gray-200 dark:divide-gray-700 transition-colors">
                       {Object.entries(customPricing[activeCategory]).map(([key, value]: [string, any]) => (
-                        <tr key={key} className="hover:bg-gray-50">
+                        <tr key={key} className="hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
                           <td className="px-4 py-4">
-                            <div className="text-sm font-medium text-gray-900">{value.description}</div>
+                            <div className="text-sm font-medium text-gray-900 dark:text-gray-100 transition-colors">{value.description}</div>
                             <div className="text-xs text-gray-500 mt-1">{key}</div>
                           </td>
                           <td className="px-4 py-4">
@@ -559,7 +560,7 @@ export default function PricingConfigPage() {
                               step="0.01"
                               value={value.economy}
                               onChange={(e) => handlePriceChange(activeCategory, key, 'economy', e.target.value)}
-                              className="w-full px-2 py-1 text-right text-sm border border-gray-300 rounded focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                              className="w-full px-2 py-1 text-right text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded focus:ring-2 focus:ring-green-500 dark:focus:ring-green-400 focus:border-green-500 transition-colors"
                             />
                           </td>
                           <td className="px-4 py-4">
@@ -568,7 +569,7 @@ export default function PricingConfigPage() {
                               step="0.01"
                               value={value.standard}
                               onChange={(e) => handlePriceChange(activeCategory, key, 'standard', e.target.value)}
-                              className="w-full px-2 py-1 text-right text-sm border border-gray-300 rounded focus:ring-2 focus:ring-green-500 focus:border-green-500 font-medium"
+                              className="w-full px-2 py-1 text-right text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded focus:ring-2 focus:ring-green-500 dark:focus:ring-green-400 focus:border-green-500 transition-colors font-medium"
                             />
                           </td>
                           <td className="px-4 py-4">
@@ -577,18 +578,18 @@ export default function PricingConfigPage() {
                               step="0.01"
                               value={value.premium}
                               onChange={(e) => handlePriceChange(activeCategory, key, 'premium', e.target.value)}
-                              className="w-full px-2 py-1 text-right text-sm border border-gray-300 rounded focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                              className="w-full px-2 py-1 text-right text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded focus:ring-2 focus:ring-green-500 dark:focus:ring-green-400 focus:border-green-500 transition-colors"
                             />
                           </td>
-                          <td className="px-4 py-4 text-sm text-gray-500">{value.unit}</td>
+                          <td className="px-4 py-4 text-sm text-gray-500 dark:text-gray-400 transition-colors">{value.unit}</td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                 </div>
 
-                <div className="mt-6 p-4 bg-green-50 rounded-lg">
-                  <p className="text-sm text-green-800">
+                <div className="mt-6 p-4 bg-green-50 dark:bg-green-900/30 rounded-lg transition-colors">
+                  <p className="text-sm text-green-800 dark:text-green-300 transition-colors">
                     <strong>✓ All values are now editable!</strong> You can modify prices directly here, or export to Excel, make changes, and import back.
                   </p>
                 </div>
@@ -598,11 +599,11 @@ export default function PricingConfigPage() {
         </div>
 
         {/* Actions */}
-        <div className="mt-6 flex items-center justify-between bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+        <div className="mt-6 flex items-center justify-between bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-4 transition-colors">
           <button
             onClick={handleReset}
             disabled={saving}
-            className="px-6 py-2 border border-red-300 text-red-700 rounded-lg hover:bg-red-50 transition-colors disabled:opacity-50"
+            className="px-6 py-2 border border-red-300 dark:border-red-700 text-red-700 dark:text-red-400 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/30 transition-colors disabled:opacity-50"
           >
             Reset to Defaults
           </button>
@@ -610,7 +611,7 @@ export default function PricingConfigPage() {
           <button
             onClick={handleSave}
             disabled={saving}
-            className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 flex items-center gap-2"
+            className="px-6 py-2 bg-green-600 dark:bg-green-700 text-white rounded-lg hover:bg-green-700 dark:hover:bg-green-600 transition-colors disabled:opacity-50 flex items-center gap-2"
           >
             {saving ? (
               <>

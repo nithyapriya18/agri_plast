@@ -13,16 +13,10 @@ import { TerrainAnalysisResult } from './terrainAnalysis';
 import { ComplianceCheckResult } from './regulatoryCompliance';
 
 /**
- * Generate user-friendly label for polyhouse (A, B, C, ..., Z, AA, AB, ...)
+ * Generate user-friendly label for polyhouse (P1, P2, P3, ...)
  */
 function getPolyhouseLabel(index: number): string {
-  const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
-  if (index < 26) {
-    return letters[index];
-  }
-  const first = Math.floor(index / 26) - 1;
-  const second = index % 26;
-  return letters[first] + letters[second];
+  return `P${index + 1}`;
 }
 
 /**
@@ -395,6 +389,15 @@ export class PolyhouseOptimizer {
     landPolygon: Feature<Polygon>,
     occupiedAreas: Feature<Polygon>[]
   ): Promise<Polyhouse | null> {
+    // Check minimum blocks constraint
+    const totalBlocks = lengthBlocks * widthBlocks;
+    const minimumBlocks = this.config.minimumBlocksPerPolyhouse || 10;
+
+    if (totalBlocks < minimumBlocks) {
+      // Skip polyhouses that don't meet minimum blocks requirement
+      return null;
+    }
+
     const polyhouse = this.createPolyhouse(position, orientation, lengthBlocks, widthBlocks);
 
     // Check if it fits

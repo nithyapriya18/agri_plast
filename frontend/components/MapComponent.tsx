@@ -40,6 +40,7 @@ export default function MapComponent({
   const [showSuggestions, setShowSuggestions] = useState(false);
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const hasInitiallyFitBounds = useRef(false);
+  const polyhouseMarkersRef = useRef<mapboxgl.Marker[]>([]);
 
   // Initialize map
   useEffect(() => {
@@ -496,8 +497,10 @@ export default function MapComponent({
           properties: {
             id: `${polyhouse.id}-gutter`,
             index,
+            label: polyhouse.label || `P${index + 1}`,
             area: polyhouse.area,
             dimensions: polyhouse.dimensions,
+            blocksCount: polyhouse.blocks?.length || 0,
           },
           geometry: {
             type: 'Polygon' as const,
@@ -642,13 +645,16 @@ export default function MapComponent({
         const props = feature.properties;
         const area = props?.area || 0;
         const dimensions = props?.dimensions ? JSON.parse(props.dimensions) : null;
+        const label = props?.label || `P${(props?.index || 0) + 1}`;
 
-        let html = `<div style="padding: 8px; font-size: 13px;">`;
-        html += `<strong>Polyhouse #${(props?.index || 0) + 1}</strong><br/>`;
+        const blocksCount = props?.blocksCount || 0;
+        let html = `<div style="padding: 8px; font-size: 13px; background: white; color: #1f2937; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">`;
+        html += `<strong style="color: #047857;">Polyhouse ${label}</strong><br/>`;
         html += `<strong>Total Area:</strong> ${area.toFixed(0)} m²<br/>`;
         if (dimensions) {
           html += `<strong>Size:</strong> ${dimensions.length.toFixed(1)}m × ${dimensions.width.toFixed(1)}m<br/>`;
         }
+        html += `<strong>Blocks:</strong> ${blocksCount}<br/>`;
         html += `</div>`;
 
         popup.setLngLat(e.lngLat).setHTML(html).addTo(mapInstance);
@@ -659,6 +665,10 @@ export default function MapComponent({
       mapInstance.getCanvas().style.cursor = '';
       popup.remove();
     });
+
+    // Clear old polyhouse markers before adding new ones
+    polyhouseMarkersRef.current.forEach(marker => marker.remove());
+    polyhouseMarkersRef.current = [];
 
     // Add labels for polyhouses
     validPolyhouses.forEach((polyhouse, index) => {
@@ -677,11 +687,15 @@ export default function MapComponent({
       el.style.borderRadius = '4px';
       el.style.fontSize = '12px';
       el.style.fontWeight = 'bold';
-      el.textContent = `P${index + 1}`;
+      // Use backend label if available, otherwise fallback to P{index+1}
+      el.textContent = polyhouse.label || `P${index + 1}`;
 
-      new mapboxgl.Marker(el)
+      const marker = new mapboxgl.Marker(el)
         .setLngLat([center.lng, center.lat])
         .addTo(mapInstance);
+
+      // Store marker reference for cleanup
+      polyhouseMarkersRef.current.push(marker);
     });
 
     // Fit bounds to show all polyhouses (only on first load, not on updates)

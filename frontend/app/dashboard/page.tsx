@@ -1,10 +1,10 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, Fragment } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
-import DarkModeToggle from '@/components/DarkModeToggle';
+import { ThemeToggle } from '@/components/ThemeToggle';
 import { generateProjectPDF } from '@/lib/pdfExport';
 
 interface Project {
@@ -28,6 +28,8 @@ export default function DashboardPage() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<any>(null);
+  const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set());
+  const [projectVersions, setProjectVersions] = useState<Record<string, Project[]>>({});
 
   useEffect(() => {
     loadUserAndProjects();
@@ -49,10 +51,11 @@ export default function DashboardPage() {
 
       setUser(user);
 
-      // Load projects
+      // Load projects (only latest versions)
       const { data, error } = await supabase
         .from('projects')
         .select('*')
+        .eq('is_latest', true)
         .order('created_at', { ascending: false });
 
       if (error) throw error;
@@ -109,6 +112,39 @@ export default function DashboardPage() {
     } catch (error) {
       console.error('Error deleting project:', error);
       alert('Failed to delete project');
+    }
+  };
+
+  const toggleProjectVersions = async (projectId: string) => {
+    const newExpanded = new Set(expandedProjects);
+
+    if (expandedProjects.has(projectId)) {
+      // Collapse
+      newExpanded.delete(projectId);
+      setExpandedProjects(newExpanded);
+    } else {
+      // Expand and load versions
+      newExpanded.add(projectId);
+      setExpandedProjects(newExpanded);
+
+      // Load versions from backend if not already loaded
+      if (!projectVersions[projectId]) {
+        try {
+          const response = await fetch(
+            `${process.env.NEXT_PUBLIC_API_URL}/api/projects/${projectId}/versions`
+          );
+
+          if (response.ok) {
+            const data = await response.json();
+            setProjectVersions(prev => ({
+              ...prev,
+              [projectId]: data.versions || [],
+            }));
+          }
+        } catch (error) {
+          console.error('Error loading versions:', error);
+        }
+      }
     }
   };
 
@@ -220,7 +256,7 @@ export default function DashboardPage() {
               Settings
             </Link>
 
-            <DarkModeToggle />
+            <ThemeToggle />
 
             <span className="text-sm text-gray-600 dark:text-gray-300 transition-colors">{user?.email}</span>
 
@@ -289,13 +325,43 @@ export default function DashboardPage() {
               </thead>
               <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700 transition-colors">
                 {projects.map((project) => (
-                  <tr key={project.id} className="hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
-                    <td className="px-6 py-4 min-w-[150px]">
-                      <div className="text-sm font-medium text-gray-900 dark:text-white transition-colors">{project.name}</div>
-                      {project.location_name && (
-                        <div className="text-sm text-gray-500 dark:text-gray-400 transition-colors">{project.location_name}</div>
-                      )}
-                    </td>
+                  <Fragment key={project.id}>
+                    <tr className="hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
+                      <td className="px-6 py-4 min-w-[150px]">
+                        <div className="flex items-center gap-2">
+                          {/* Only show expand button if there are multiple versions */}
+                          {(project.version || 1) > 1 ? (
+                            <button
+                              onClick={() => toggleProjectVersions(project.id)}
+                              className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+                            >
+                              <svg
+                                className={`w-5 h-5 transition-transform ${expandedProjects.has(project.id) ? 'rotate-90' : ''}`}
+                                fill="none"
+                                stroke="currentColor"
+                                viewBox="0 0 24 24"
+                              >
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                              </svg>
+                            </button>
+                          ) : (
+                            <div className="w-5" /> /* Spacer to maintain alignment */
+                          )}
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <div className="text-sm font-medium text-gray-900 dark:text-white transition-colors">{project.name}</div>
+                              {(project.version || 1) > 1 && (
+                                <span className="text-xs px-2 py-0.5 bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 rounded-full transition-colors">
+                                  v{project.version || 1}
+                                </span>
+                              )}
+                            </div>
+                            {project.location_name && (
+                              <div className="text-sm text-gray-500 dark:text-gray-400 transition-colors">{project.location_name}</div>
+                            )}
+                          </div>
+                        </div>
+                      </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300 transition-colors min-w-[120px]">
                       {project.land_area_sqm.toFixed(0)} m²
                     </td>
@@ -337,6 +403,64 @@ export default function DashboardPage() {
                       </button>
                     </td>
                   </tr>
+
+                  {/* Version Rows - shown when expanded */}
+                  {expandedProjects.has(project.id) && projectVersions[project.id] && (
+                    projectVersions[project.id]
+                      .filter((version: any) => version.id !== project.id) // Don't show current version in expanded list
+                      .map((version: any) => (
+                      <tr
+                        key={version.id}
+                        className="bg-gray-50 dark:bg-gray-900 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors border-l-4 border-blue-400 dark:border-blue-600"
+                      >
+                        <td className="px-6 py-3 min-w-[150px] pl-16">
+                          <div className="flex items-center gap-2">
+                            <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                            </svg>
+                            <span className="text-xs px-2 py-0.5 bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 rounded-full font-medium transition-colors">
+                              v{version.version}
+                            </span>
+                            <span className="text-xs text-gray-400 dark:text-gray-500 transition-colors">
+                              {new Date(version.created_at).toLocaleDateString()}
+                            </span>
+                            {version.version_name && (
+                              <span className="text-xs text-gray-500 dark:text-gray-400 transition-colors">• {version.version_name}</span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-6 py-3 whitespace-nowrap text-xs text-gray-600 dark:text-gray-400 transition-colors min-w-[120px]">
+                          {version.land_area_sqm?.toFixed(0) || 'N/A'} m²
+                        </td>
+                        <td className="px-6 py-3 whitespace-nowrap text-xs text-gray-600 dark:text-gray-400 transition-colors min-w-[100px]">
+                          {version.polyhouse_count || 0}
+                        </td>
+                        <td className="px-6 py-3 whitespace-nowrap text-xs text-gray-600 dark:text-gray-400 transition-colors min-w-[100px]">
+                          {version.utilization_percentage?.toFixed(1) || '0.0'}%
+                        </td>
+                        <td className="px-6 py-3 whitespace-nowrap text-xs text-gray-600 dark:text-gray-400 transition-colors min-w-[130px]">
+                          ₹{version.estimated_cost?.toLocaleString('en-IN') || '0'}
+                        </td>
+                        <td className="px-6 py-3 whitespace-nowrap min-w-[100px]">
+                          <span className="text-xs px-2 py-0.5 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-full transition-colors">
+                            {version.status || 'draft'}
+                          </span>
+                        </td>
+                        <td className="px-6 py-3 text-xs text-gray-500 dark:text-gray-400 transition-colors min-w-[200px]">
+                          <span className="italic">Previous version</span>
+                        </td>
+                        <td className="px-6 py-3 whitespace-nowrap text-right text-xs font-medium min-w-[200px]">
+                          <Link
+                            href={`/projects/${version.id}`}
+                            className="text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 transition-colors"
+                          >
+                            View
+                          </Link>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                  </Fragment>
                 ))}
               </tbody>
             </table>

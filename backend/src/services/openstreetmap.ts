@@ -98,13 +98,20 @@ out geom;
         }));
 
         if (element.tags?.highway) {
-          // It's a road
-          roads.push({
-            type: 'road',
-            coordinates: coords,
-            name: element.tags.name,
-            highway: element.tags.highway,
-          });
+          // Only include MAJOR roads, not footpaths/cycleways/service roads
+          const majorRoadTypes = ['motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'residential', 'unclassified'];
+          const highwayType = element.tags.highway;
+
+          if (majorRoadTypes.includes(highwayType)) {
+            // It's a major road
+            roads.push({
+              type: 'road',
+              coordinates: coords,
+              name: element.tags.name,
+              highway: highwayType,
+            });
+          }
+          // Ignore: footway, cycleway, path, service, track, pedestrian, steps, etc.
         } else if (element.tags?.building) {
           // It's a building
           buildings.push({

@@ -11,6 +11,8 @@ import {
 import { calculatePolygonArea } from '../utils/geo';
 import * as turf from '@turf/turf';
 import { supabase } from '../lib/supabase';
+import { TerrainAnalysisService } from '../services/terrainAnalysis';
+import { RegulatoryComplianceService } from '../services/regulatoryCompliance';
 
 // In-memory storage (replace with database in production)
 const planningResults = new Map<string, PlanningResult>();
@@ -94,6 +96,7 @@ export async function createPlan(req: Request, res: Response) {
       maxSideLength: userSettings?.max_side_length ?? 120, // meters - Industry standard maximum (allows longer polyhouses)
       minSideLength: userSettings?.min_side_length ?? 8, // meters - Single block minimum
       minCornerDistance: userSettings?.min_corner_distance ?? 4, // meters - Default = block width (configurable: 4m to 100m)
+      minimumBlocksPerPolyhouse: configInput?.minimumBlocksPerPolyhouse ?? userSettings?.minimum_blocks_per_polyhouse ?? 10, // blocks - Minimum blocks per polyhouse (default: 10)
       maxLandArea: configInput?.maxLandArea ?? userSettings?.max_land_area ?? 10000, // sqm - Single polyhouse size limit (configurable)
       solarOrientation: {
         enabled: configInput?.solarOrientation?.enabled ?? userSettings?.solar_orientation_enabled ?? true, // ENABLED by default - ensures proper sunlight for gutters
@@ -101,10 +104,10 @@ export async function createPlan(req: Request, res: Response) {
         allowedDeviationDegrees: configInput?.solarOrientation?.allowedDeviationDegrees ?? 0, // Calculated dynamically based on latitude (0 = auto-calculate)
       },
       terrain: {
-        considerSlope: userSettings?.consider_slope ?? false, // Currently disabled (enable if needed)
-        maxSlope: userSettings?.max_slope ?? 90,
+        considerSlope: userSettings?.consider_slope ?? true, // ENABLED by default - analyze terrain slopes
+        maxSlope: userSettings?.max_slope ?? 15, // 15 degrees max slope (safer default than 90)
         landLevelingOverride: configInput?.terrain?.landLevelingOverride ?? userSettings?.land_leveling_override ?? false, // User can override to allow building on slopes
-        avoidWater: configInput?.terrain?.avoidWater ?? userSettings?.avoid_water ?? true,
+        avoidWater: configInput?.terrain?.avoidWater ?? userSettings?.avoid_water ?? true, // ENABLED by default - avoid water bodies
         ignoreRestrictedZones: configInput?.terrain?.ignoreRestrictedZones ?? false,
       },
       optimization: {
@@ -112,24 +115,69 @@ export async function createPlan(req: Request, res: Response) {
         minimizeCost: configInput?.optimization?.minimizeCost ?? true,
         preferLargerPolyhouses: configInput?.optimization?.preferLargerPolyhouses ?? true,
         orientationStrategy: configInput?.optimization?.orientationStrategy ?? 'optimized',
+        allowMixedOrientations: configInput?.optimization?.allowMixedOrientations ?? userSettings?.allow_mixed_orientations ?? false,
       },
       ...configInput, // Complete override via API
     };
+
+    // CRITICAL: Perform terrain analysis BEFORE optimization
+    // This allows optimizer to avoid water bodies and restricted zones
+    console.log('Starting terrain analysis...');
+    let terrainData = null;
+    let complianceData = null;
+
+    if (configuration.terrain?.avoidWater || configuration.terrain?.considerSlope) {
+      try {
+        const terrainService = new TerrainAnalysisService();
+        terrainData = await terrainService.analyzeTerrain(landArea.coordinates, {
+          resolution: 'medium',
+          includeVegetation: true,
+          includeWaterBodies: configuration.terrain?.avoidWater ?? true,
+          slopeThreshold: configuration.terrain?.maxSlope ?? 15,
+        });
+        console.log(`✓ Terrain analysis complete: ${terrainData.restrictedAreas?.length || 0} restricted zones found`);
+
+        // Check if area is buildable
+        const buildablePercentage = (terrainData.buildableArea / landArea.area) * 100;
+        console.log(`  Buildable area: ${buildablePercentage.toFixed(1)}% (${terrainData.buildableArea.toFixed(0)} sqm)`);
+
+        if (buildablePercentage < 10) {
+          throw new Error(`Area is ${buildablePercentage.toFixed(1)}% buildable. Cannot build on water bodies or heavily restricted zones.`);
+        }
+      } catch (error) {
+        console.error('Terrain analysis failed:', error);
+        throw error; // Make this BLOCKING - don't build on unknown terrain
+      }
+    } else {
+      console.log('⊘ Terrain analysis skipped (disabled in configuration)');
+    }
 
     // Run optimization with V2 optimizer (proven to work)
     console.log('Starting V2 polyhouse optimization...');
     const startTime = Date.now();
 
     const { PolyhouseOptimizerV2 } = await import('../services/optimizerV2');
-    const optimizer = new PolyhouseOptimizerV2(landArea, configuration);
+    const optimizer = new PolyhouseOptimizerV2(landArea, configuration, terrainData);
     const polyhouses = await optimizer.optimize();
 
     const computationTime = Date.now() - startTime;
     console.log(`Optimization completed in ${computationTime}ms`);
 
-    // Note: V2 optimizer doesn't have terrain/compliance yet (will add in next iteration)
-    const terrainData = null; // optimizer.getTerrainAnalysis();
-    const complianceData = null; // optimizer.getComplianceResults();
+    // Run regulatory compliance check after optimization
+    if (terrainData) {
+      try {
+        const complianceService = new RegulatoryComplianceService();
+        complianceData = await complianceService.checkCompliance(
+          landArea.centroid,
+          landArea.area,
+          polyhouses,
+          configuration
+        );
+        console.log(`✓ Regulatory compliance check complete`);
+      } catch (error) {
+        console.warn('Regulatory compliance check failed (non-blocking):', error);
+      }
+    }
 
     // Generate quotation
     const quotation = await generateQuotation(polyhouses, configuration, landArea.id);
@@ -188,10 +236,20 @@ export async function createPlan(req: Request, res: Response) {
         ],
         constraintViolations: [], // Will be populated by optimizer if violations occur
       },
-      // Include terrain analysis if available (V2 doesn't support this yet)
-      terrainAnalysis: undefined,
-      // Include regulatory compliance if available (V2 doesn't support this yet)
-      regulatoryCompliance: undefined,
+      // Include terrain analysis if available
+      terrainAnalysis: terrainData ? {
+        buildableAreaPercentage: (terrainData.buildableArea / landArea.area) * 100,
+        restrictedZones: terrainData.restrictedAreas.map(zone => ({
+          type: zone.type,
+          area: zone.area,
+          reason: zone.reason,
+        })),
+        averageSlope: terrainData.averageSlope,
+        elevationRange: terrainData.elevationRange,
+        warnings: terrainData.warnings,
+      } : undefined,
+      // Include regulatory compliance if available
+      regulatoryCompliance: complianceData,
     };
 
     // Add warnings if utilization is low
@@ -199,6 +257,27 @@ export async function createPlan(req: Request, res: Response) {
       planningResult.warnings.push(
         'Low space utilization. Consider adjusting constraints or land shape for better coverage.'
       );
+    }
+
+    // Add terrain-specific warnings if terrain analysis was performed
+    if (terrainData && terrainData.restrictedAreas && terrainData.restrictedAreas.length > 0) {
+      const waterZones = terrainData.restrictedAreas.filter(z => z.type === 'water' || z.type === 'wetland');
+      const forestZones = terrainData.restrictedAreas.filter(z => z.type === 'forest');
+      const slopeZones = terrainData.restrictedAreas.filter(z => z.type === 'steep_slope');
+      const roadZones = terrainData.restrictedAreas.filter(z => z.type === 'road');
+
+      if (waterZones.length > 0) {
+        planningResult.warnings.push(`${waterZones.length} water body zone(s) detected and avoided`);
+      }
+      if (forestZones.length > 0) {
+        planningResult.warnings.push(`${forestZones.length} forest zone(s) detected and avoided`);
+      }
+      if (slopeZones.length > 0) {
+        planningResult.warnings.push(`${slopeZones.length} steep slope zone(s) detected`);
+      }
+      if (roadZones.length > 0) {
+        planningResult.warnings.push(`${roadZones.length} road(s) detected and avoided`);
+      }
     }
 
     if (polyhouses.length === 0) {

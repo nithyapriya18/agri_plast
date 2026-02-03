@@ -75,7 +75,7 @@ export class PricingService {
     updates: Partial<UserPricingSettings>
   ): Promise<boolean> {
     try {
-      const updateData: any = {};
+      const updateData: any = { user_id: userId };
 
       if (updates.pricingTier) updateData.pricing_tier = updates.pricingTier;
       if (updates.customPricing !== undefined) updateData.custom_pricing = updates.customPricing;
@@ -87,8 +87,7 @@ export class PricingService {
 
       const { error } = await supabase
         .from('user_settings')
-        .update(updateData)
-        .eq('user_id', userId);
+        .upsert(updateData, { onConflict: 'user_id' });
 
       if (error) {
         console.error('Failed to update user pricing:', error);
@@ -109,7 +108,8 @@ export class PricingService {
     try {
       const { error } = await supabase
         .from('user_settings')
-        .update({
+        .upsert({
+          user_id: userId,
           pricing_tier: 'standard',
           custom_pricing: null,
           service_charge_percentage: 12.0,
@@ -117,8 +117,7 @@ export class PricingService {
           gst_percentage: 18.0,
           transportation_cost_per_km: 18.0,
           installation_labor_rate: 75.0,
-        })
-        .eq('user_id', userId);
+        }, { onConflict: 'user_id' });
 
       if (error) {
         console.error('Failed to reset pricing:', error);

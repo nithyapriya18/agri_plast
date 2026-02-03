@@ -20,7 +20,26 @@ import {
   Point,
   Coordinate,
   PolyhouseConfiguration,
+  POLYHOUSE_COLORS,
 } from '@shared/types';
+
+/**
+ * Generate user-friendly label for polyhouse (P1, P2, P3, ...)
+ */
+function getPolyhouseLabel(index: number): string {
+  return `P${index + 1}`;
+}
+
+/**
+ * Assign labels and colors to polyhouses sequentially
+ */
+function assignLabelsAndColors(polyhouses: Polyhouse[]): Polyhouse[] {
+  return polyhouses.map((ph, index) => ({
+    ...ph,
+    label: getPolyhouseLabel(index),
+    color: POLYHOUSE_COLORS[index % POLYHOUSE_COLORS.length],
+  }));
+}
 
 /**
  * Represents a rectangular polyhouse candidate
@@ -39,6 +58,7 @@ interface PolyhouseCandidate {
 export class PolyhouseOptimizerV2 {
   private config: PolyhouseConfiguration;
   private landArea: LandArea;
+  private terrainData: any; // TerrainAnalysisResult from terrainAnalysis.ts
 
   // Industry-standard dimensions
   private readonly GABLE_MODULE = 8;     // 8m gable bay
@@ -46,9 +66,14 @@ export class PolyhouseOptimizerV2 {
   private readonly MAX_AREA = 10000;     // 10,000 sqm = 1 hectare
   private readonly CORRIDOR_WIDTH = 2;   // 2m between polyhouses
 
-  constructor(landArea: LandArea, config: PolyhouseConfiguration) {
+  constructor(landArea: LandArea, config: PolyhouseConfiguration, terrainData?: any) {
     this.config = config;
     this.landArea = landArea;
+    this.terrainData = terrainData;
+
+    if (terrainData) {
+      console.log(`🌍 Terrain data loaded: ${terrainData.restrictedAreas?.length || 0} restricted zones`);
+    }
   }
 
   /**
@@ -65,7 +90,21 @@ export class PolyhouseOptimizerV2 {
     // Create land polygon for validation
     const landCoords = this.landArea.coordinates.map(c => [c.lng, c.lat]);
     landCoords.push([this.landArea.coordinates[0].lng, this.landArea.coordinates[0].lat]);
-    const landPolygon = turf.polygon([landCoords]);
+    let landPolygon = turf.polygon([landCoords]);
+
+    // Apply safety buffer (inward buffer to keep polyhouses away from edges)
+    const safetyBuffer = this.config.safetyBuffer || 1.0;
+    if (safetyBuffer > 0) {
+      console.log(`\n📏 Applying ${safetyBuffer}m safety buffer from land boundary`);
+      // Negative buffer creates inward buffer
+      const buffered = turf.buffer(landPolygon, -safetyBuffer / 1000, { units: 'kilometers' });
+      if (buffered) {
+        landPolygon = buffered as any;
+        console.log(`   ✓ Safety buffer applied - polyhouses will be ${safetyBuffer}m from edges`);
+      } else {
+        console.warn(`   ⚠ Could not apply safety buffer - land area may be too small`);
+      }
+    }
 
     // Generate candidate sizes (from large to small for cost efficiency)
     const allSizes = this.generateCandidateSizes();
@@ -101,9 +140,21 @@ export class PolyhouseOptimizerV2 {
 
     console.log(`Grid: ${cols} × ${rows} = ${cols * rows} placement positions to try`);
 
-    // Determine orientations based on strategy
-    const orientations = this.getOrientations();
-    console.log(`Testing ${orientations.length} orientations:`, orientations.map(o => `${o}°`).join(', '));
+    // Determine orientations based on strategy and allowMixedOrientations setting
+    let orientations = this.getOrientations();
+    const allowMixedOrientations = this.config.optimization.allowMixedOrientations ?? false;
+
+    if (!allowMixedOrientations) {
+      // Uniform orientation: Find best single orientation for all polyhouses
+      // This ensures better access road layout and infrastructure symmetry
+      console.log('🔄 Finding best uniform orientation for all polyhouses...');
+      orientations = [this.findBestGlobalOrientation(landPolygon, candidateSizes, orientations)];
+      console.log(`   Using uniform orientation: ${orientations[0]}° (better for access roads & infrastructure)`);
+    } else {
+      // Mixed orientations: Each polyhouse can rotate independently
+      console.log(`Testing ${orientations.length} orientations per position:`, orientations.map(o => `${o}°`).join(', '));
+      console.log('   (Mixed orientations mode: maximizes space, may affect road layout)');
+    }
 
     // Track occupied areas
     const occupiedPolygons: Feature<Polygon>[] = [];
@@ -281,6 +332,93 @@ export class PolyhouseOptimizerV2 {
       console.log(`  ✅ Second pass: +${secondPassCount} polyhouses`);
     }
 
+    // THIRD PASS: Fill remaining gaps with SMALL polyhouses if coverage < 70%
+    currentCoverage = (polyhouses.reduce((sum, p) => sum + p.area, 0) / this.landArea.area) * 100;
+
+    if (currentCoverage < 70) {
+      console.log(`\n🎯 THIRD PASS: Filling remaining gaps with SMALL polyhouses (500-2500 sqm)...`);
+
+      // Use small polyhouses to maximize utilization
+      const smallSizes = allSizes.filter(s => s.area >= 500 && s.area <= 2500);
+
+      if (smallSizes.length > 0) {
+        console.log(`  Using ${smallSizes.length} small sizes (${smallSizes[smallSizes.length - 1].area}-${smallSizes[0].area} sqm)`);
+
+        // Use finer grid for small polyhouses
+        const smallGridSpacing = Math.min(gridSpacing * 0.5, 8); // Even finer grid
+        const smallLatStep = smallGridSpacing / 111320;
+        const smallLngStep = smallGridSpacing / (111320 * Math.cos((minLat + maxLat) / 2 * Math.PI / 180));
+        const smallCols = Math.ceil((maxLng - minLng) / smallLngStep);
+        const smallRows = Math.ceil((maxLat - minLat) / smallLatStep);
+
+        console.log(`  Grid: ${smallCols} × ${smallRows} = ${smallCols * smallRows} positions`);
+
+        let thirdPassCount = 0;
+        const maxSmallPolyhouses = 30;
+
+        for (let row = 0; row < smallRows; row++) {
+          for (let col = 0; col < smallCols; col++) {
+            const currentUtilization = (polyhouses.reduce((sum, p) => sum + p.area, 0) / this.landArea.area) * 100;
+            if (currentUtilization >= 75 || thirdPassCount >= maxSmallPolyhouses) {
+              if (currentUtilization >= 75) {
+                console.log(`  ✅ Good utilization (${currentUtilization.toFixed(1)}%) - stopping third pass`);
+              }
+              break;
+            }
+
+            const lat = minLat + row * smallLatStep;
+            const lng = minLng + col * smallLngStep;
+            const position: Coordinate = { lat, lng };
+
+            const point = turf.point([lng, lat]);
+            if (!turf.booleanPointInPolygon(point, landPolygon)) {
+              continue;
+            }
+
+            let bestPolyhouse: Polyhouse | null = null;
+            let bestArea = 0;
+
+            for (const rotation of orientations) {
+              for (const size of smallSizes) {
+                const candidate: PolyhouseCandidate = {
+                  gableLength: size.gable,
+                  gutterWidth: size.gutter,
+                  area: size.area,
+                  position,
+                  rotation,
+                };
+
+                const polyhouse = await this.tryPlacePolyhouse(candidate, landPolygon, occupiedPolygons);
+
+                if (polyhouse && polyhouse.area > bestArea) {
+                  bestPolyhouse = polyhouse;
+                  bestArea = polyhouse.area;
+                }
+
+                if (polyhouse) break;
+              }
+            }
+
+            if (bestPolyhouse) {
+              polyhouses.push(bestPolyhouse);
+              const buffered = this.createBufferedPolygon(bestPolyhouse, this.CORRIDOR_WIDTH);
+              occupiedPolygons.push(buffered);
+              thirdPassCount++;
+
+              if (thirdPassCount % 3 === 0) {
+                const coverage = (polyhouses.reduce((sum, p) => sum + p.area, 0) / this.landArea.area) * 100;
+                console.log(`  +${thirdPassCount} small polyhouses (${coverage.toFixed(1)}%)`);
+              }
+            }
+          }
+
+          if (thirdPassCount >= maxSmallPolyhouses) break;
+        }
+
+        console.log(`  ✅ Third pass: +${thirdPassCount} small polyhouses`);
+      }
+    }
+
     const finalCoverage = (polyhouses.reduce((sum, p) => sum + p.area, 0) / this.landArea.area) * 100;
     const elapsedTime = Date.now() - startTime;
 
@@ -291,7 +429,11 @@ export class PolyhouseOptimizerV2 {
     console.log(`   Total polyhouse area: ${polyhouses.reduce((sum, p) => sum + p.area, 0).toFixed(0)} sqm`);
     console.log('='.repeat(52) + '\n');
 
-    return polyhouses;
+    // Assign sequential labels and colors (A, B, C... without gaps)
+    const labeledPolyhouses = assignLabelsAndColors(polyhouses);
+    console.log(`   Labels assigned: ${labeledPolyhouses.map(p => p.label).join(', ')}`);
+
+    return labeledPolyhouses;
   }
 
   /**
@@ -325,6 +467,63 @@ export class PolyhouseOptimizerV2 {
   /**
    * Get orientations to try based on configuration
    */
+  /**
+   * Find the best single orientation for all polyhouses
+   * Tests a sample of positions with each orientation and returns the one with maximum coverage
+   */
+  private findBestGlobalOrientation(
+    landPolygon: Feature<Polygon>,
+    candidateSizes: any[],
+    orientations: number[]
+  ): number {
+    const bounds = turf.bbox(landPolygon);
+    const [minLng, minLat, maxLng, maxLat] = bounds;
+
+    // Sample 5x5 grid of positions
+    const testPositions: Coordinate[] = [];
+    for (let i = 0; i <= 4; i++) {
+      for (let j = 0; j <= 4; j++) {
+        const lat = minLat + (maxLat - minLat) * i / 4;
+        const lng = minLng + (maxLng - minLng) * j / 4;
+        const point = turf.point([lng, lat]);
+        if (turf.booleanPointInPolygon(point, landPolygon)) {
+          testPositions.push({ lat, lng });
+        }
+      }
+    }
+
+    let bestOrientation = 0;
+    let bestTotalArea = 0;
+
+    // Test each orientation
+    for (const rotation of orientations) {
+      let totalArea = 0;
+
+      // Try placing largest polyhouse at each test position with this orientation
+      for (const position of testPositions) {
+        const candidate: PolyhouseCandidate = {
+          gableLength: candidateSizes[0].gable,
+          gutterWidth: candidateSizes[0].gutter,
+          area: candidateSizes[0].area,
+          position,
+          rotation,
+        };
+
+        const rectangle = this.createRectangle(candidate);
+        if (this.isValidPlacement(rectangle, landPolygon, [])) {
+          totalArea += candidate.area;
+        }
+      }
+
+      if (totalArea > bestTotalArea) {
+        bestTotalArea = totalArea;
+        bestOrientation = rotation;
+      }
+    }
+
+    return bestOrientation;
+  }
+
   private getOrientations(): number[] {
     const strategy = this.config.optimization.orientationStrategy || 'optimized';
     const latitude = this.config.solarOrientation.latitudeDegrees;
@@ -361,6 +560,15 @@ export class PolyhouseOptimizerV2 {
     landPolygon: Feature<Polygon>,
     occupiedAreas: Feature<Polygon>[]
   ): Promise<Polyhouse | null> {
+    // Check minimum blocks constraint BEFORE creating the polyhouse
+    const numBlocks = (candidate.gableLength / this.GABLE_MODULE) * (candidate.gutterWidth / this.GUTTER_MODULE);
+    const minimumBlocks = this.config.minimumBlocksPerPolyhouse || 10;
+
+    if (numBlocks < minimumBlocks) {
+      // Skip polyhouses that don't meet minimum blocks requirement
+      return null;
+    }
+
     // Create rectangle at position with rotation
     const rectangle = this.createRectangle(candidate);
 
@@ -442,9 +650,48 @@ export class PolyhouseOptimizerV2 {
     landPolygon: Feature<Polygon>,
     occupiedAreas: Feature<Polygon>[]
   ): boolean {
-    // Must be within land boundary
-    if (!turf.booleanWithin(rectangle.polygon, landPolygon) && !turf.booleanContains(landPolygon, rectangle.polygon)) {
+    // Must be completely within land boundary
+    // Use booleanContains to check if landPolygon completely contains the rectangle
+    try {
+      if (!turf.booleanContains(landPolygon, rectangle.polygon)) {
+        // Also try booleanWithin as fallback (they should be equivalent but turf.js can be quirky)
+        if (!turf.booleanWithin(rectangle.polygon, landPolygon)) {
+          return false;
+        }
+      }
+    } catch (error) {
+      // If there's a geometry error, reject the placement
       return false;
+    }
+
+    // CRITICAL: Must not overlap with water bodies or restricted zones
+    if (this.terrainData && this.terrainData.restrictedAreas) {
+      for (const restrictedZone of this.terrainData.restrictedAreas) {
+        // Only block placement for truly unbuildable zones (water bodies with 'prohibited' severity)
+        if (restrictedZone.type === 'water' && restrictedZone.severity === 'prohibited') {
+          try {
+            // Create polygon from restricted zone coordinates
+            const restrictedCoords = restrictedZone.coordinates.map((c: any) => [c.lng, c.lat]);
+            if (restrictedCoords.length >= 3) {
+              restrictedCoords.push(restrictedCoords[0]); // Close the polygon
+              const restrictedPolygon = turf.polygon([restrictedCoords]);
+
+              // Check for any overlap
+              if (
+                turf.booleanOverlap(rectangle.polygon, restrictedPolygon) ||
+                turf.booleanContains(restrictedPolygon, rectangle.polygon) ||
+                turf.booleanContains(rectangle.polygon, restrictedPolygon) ||
+                turf.booleanIntersects(rectangle.polygon, restrictedPolygon)
+              ) {
+                return false; // Cannot build on water
+              }
+            }
+          } catch (error) {
+            // If polygon is invalid, skip it
+            console.warn('Invalid restricted zone polygon:', error);
+          }
+        }
+      }
     }
 
     // Must not overlap with occupied areas (which include corridor buffers)

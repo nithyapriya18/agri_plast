@@ -7,6 +7,7 @@
 import { Coordinate } from '@shared/types';
 import { CopernicusAPI } from './copernicusAPI';
 import { OpenStreetMapService, OSMRoad, OSMBuilding, OSMWater, OSMForest } from './openstreetmap';
+import { SatelliteImageryAnalysisService, DetectedFeature } from './satelliteImageryAnalysis';
 import * as turf from '@turf/turf';
 
 export interface TerrainPoint {
@@ -52,10 +53,21 @@ export interface RestrictedZone {
 export class TerrainAnalysisService {
   private copernicusAPI: CopernicusAPI;
   private osmService: OpenStreetMapService;
+  private satelliteAnalysis: SatelliteImageryAnalysisService;
+  private useBedrockVision: boolean;
 
   constructor() {
     this.copernicusAPI = new CopernicusAPI();
     this.osmService = new OpenStreetMapService();
+    this.satelliteAnalysis = new SatelliteImageryAnalysisService();
+    // Enable Bedrock Vision analysis if Google Maps API key is available
+    this.useBedrockVision = !!process.env.GOOGLE_MAPS_API_KEY;
+
+    if (this.useBedrockVision) {
+      console.log('✓ Bedrock Vision terrain analysis ENABLED (accurate detection)');
+    } else {
+      console.log('⚠ Bedrock Vision disabled - add GOOGLE_MAPS_API_KEY for better accuracy');
+    }
   }
 
   /**
@@ -80,11 +92,29 @@ export class TerrainAnalysisService {
 
     console.log(`🌍 Starting terrain analysis (${resolution} resolution)...`);
 
+    // NEW: Use Bedrock Vision for accurate satellite imagery analysis
+    let visionAnalysis = null;
+    if (this.useBedrockVision) {
+      try {
+        console.log('  🛰️  Using Bedrock Vision for satellite imagery analysis...');
+        visionAnalysis = await this.satelliteAnalysis.analyzeSatelliteImagery(coordinates);
+        console.log('  ✓ Vision analysis complete!');
+        console.log(`    - Water bodies: ${visionAnalysis.waterBodies.length} detected`);
+        console.log(`    - Forests: ${visionAnalysis.forests.length} detected`);
+        console.log(`    - Roads: ${visionAnalysis.roads.length} detected`);
+        console.log(`    - Buildings: ${visionAnalysis.buildings.length} detected`);
+        console.log(`    - Suitability score: ${visionAnalysis.suitabilityForConstruction.score}/100`);
+      } catch (error) {
+        console.warn('  ⚠ Bedrock Vision analysis failed, falling back to OSM:', error);
+        visionAnalysis = null;
+      }
+    }
+
     // Calculate sampling grid based on resolution
     const samplingPoints = this.generateSamplingGrid(coordinates, resolution);
-    console.log(`  Analyzing ${samplingPoints.length} terrain points...`);
+    console.log(`  🌍 Terrain analysis: checking ${samplingPoints.length} sample locations for elevation, slope, and water`);
 
-    // Fetch OSM data (MUCH faster than satellite imagery - 1-2 seconds vs 30+ seconds)
+    // Fetch OSM data as fallback or supplement
     // Buildings are NOT restricted - owner can demolish them
     // Only restrict: roads (govt), water bodies, and forests
     const { roads, water, forests } = await this.osmService.fetchRoadsAndBuildings(coordinates);
@@ -110,25 +140,27 @@ export class TerrainAnalysisService {
       let buildable = true;
       let landCover = LandCoverType.CROPLAND; // Default
 
-      // Check if point is on a road (with 2m buffer)
-      // Roads are government property and cannot be demolished
+      // IMPORTANT: Only WATER is truly unbuildable
+      // Roads and forests are WARNINGS - let user decide
+
+      // Check if point is on a MAJOR road only
       if (this.osmService.isPointNearRoad(point, roads, 2)) {
-        restrictions.push(`Road detected - government infrastructure`);
-        buildable = false;
+        restrictions.push(`Road detected - consider avoiding`);
+        // DON'T set buildable=false - let user decide
         landCover = LandCoverType.BUILT_UP;
       }
 
-      // Check if point is in water (with 5m buffer for waterways)
+      // Check if point is in water (ONLY thing that's truly unbuildable)
       if (this.osmService.isPointInWater(point, water, 5)) {
         restrictions.push(`Water body detected - cannot build on water`);
-        buildable = false;
+        buildable = false; // Water is truly unbuildable
         landCover = LandCoverType.WATER;
       }
 
-      // Check if point is in forest area
+      // Check if point is in forest area (WARNING only)
       if (this.osmService.isPointInForest(point, forests)) {
-        restrictions.push(`Forest area detected - protected vegetation`);
-        buildable = false;
+        restrictions.push(`Forest area - may require permits`);
+        // DON'T set buildable=false - let user decide
         landCover = LandCoverType.FOREST;
       }
 
@@ -144,9 +176,19 @@ export class TerrainAnalysisService {
       });
     }
 
-    // Create restricted zones directly from OSM geometries (more accurate than clustering sample points)
-    // Clip them to land boundary to avoid zones extending outside the selected area
-    const clusteredRestrictions = this.createRestrictedZonesFromOSM(roads, water, forests, coordinates);
+    // Create restricted zones from Bedrock Vision (primary) and OSM (fallback)
+    // Bedrock Vision is more accurate for water detection than OSM
+    let clusteredRestrictions: RestrictedZone[] = [];
+
+    if (visionAnalysis && visionAnalysis.waterBodies.length > 0) {
+      // Use Bedrock Vision water detections as primary source (more accurate)
+      console.log('  Using Bedrock Vision for water body restricted zones...');
+      clusteredRestrictions = this.createRestrictedZonesFromVision(visionAnalysis, coordinates);
+    } else {
+      // Fallback to OSM if Vision analysis failed or found nothing
+      console.log('  Using OSM for restricted zones (Vision analysis unavailable)...');
+      clusteredRestrictions = this.createRestrictedZonesFromOSM(roads, water, forests, coordinates);
+    }
 
     // Calculate statistics
     const elevations = terrainGrid.map(p => p.elevation);
@@ -158,16 +200,61 @@ export class TerrainAnalysisService {
     const waterPointsCount = terrainGrid.filter(p => this.isWaterBody(p.landCover)).length;
     const forestPointsCount = terrainGrid.filter(p => p.landCover === LandCoverType.FOREST).length;
 
+    // Add Vision Analysis warnings (more accurate than OSM)
+    if (visionAnalysis) {
+      warnings.push(`🛰️ Bedrock Vision Analysis Results:`);
+      warnings.push(`  Land Use: ${visionAnalysis.landUseDescription}`);
+      warnings.push(`  Construction Suitability: ${visionAnalysis.suitabilityForConstruction.score}/100`);
+
+      if (visionAnalysis.waterBodies.length > 0) {
+        const totalWaterPercentage = visionAnalysis.waterBodies.reduce((sum, w) => sum + w.location.estimatedPercentage, 0);
+        warnings.push(`  Water bodies detected: ${visionAnalysis.waterBodies.length} (${totalWaterPercentage.toFixed(0)}% coverage)`);
+        visionAnalysis.waterBodies.forEach((w, i) => {
+          warnings.push(`    ${i + 1}. ${w.details} (${w.location.description})`);
+        });
+      }
+
+      if (visionAnalysis.forests.length > 0) {
+        const totalForestPercentage = visionAnalysis.forests.reduce((sum, f) => sum + f.location.estimatedPercentage, 0);
+        warnings.push(`  Forests detected: ${visionAnalysis.forests.length} (${totalForestPercentage.toFixed(0)}% coverage)`);
+        visionAnalysis.forests.forEach((f, i) => {
+          warnings.push(`    ${i + 1}. ${f.details} (${f.location.description})`);
+        });
+      }
+
+      if (visionAnalysis.roads.length > 0) {
+        warnings.push(`  Roads detected: ${visionAnalysis.roads.length}`);
+        visionAnalysis.roads.forEach((r, i) => {
+          warnings.push(`    ${i + 1}. ${r.details} (${r.location.description})`);
+        });
+      }
+
+      if (visionAnalysis.suitabilityForConstruction.concerns.length > 0) {
+        warnings.push(`  ⚠️ Concerns:`);
+        visionAnalysis.suitabilityForConstruction.concerns.forEach(concern => {
+          warnings.push(`    - ${concern}`);
+        });
+      }
+
+      if (visionAnalysis.suitabilityForConstruction.recommendations.length > 0) {
+        warnings.push(`  💡 Recommendations:`);
+        visionAnalysis.suitabilityForConstruction.recommendations.forEach(rec => {
+          warnings.push(`    - ${rec}`);
+        });
+      }
+    }
+
+    // OSM-based warnings (fallback or supplement)
     if (roads.length > 0) {
-      warnings.push(`${roads.length} roads detected (government infrastructure)`);
+      warnings.push(`${roads.length} roads detected via OSM (government infrastructure)`);
     }
 
     if (water.length > 0) {
-      warnings.push(`${water.length} water bodies detected`);
+      warnings.push(`${water.length} water bodies detected via OSM`);
     }
 
     if (forests.length > 0) {
-      warnings.push(`${forests.length} forest areas detected`);
+      warnings.push(`${forests.length} forest areas detected via OSM`);
     }
 
     if (roadPointsCount > samplingPoints.length * 0.05) {
@@ -182,11 +269,32 @@ export class TerrainAnalysisService {
       warnings.push(`${(forestPointsCount / samplingPoints.length * 100).toFixed(0)}% of area covered by forests`);
     }
 
-    const buildablePercentage = (buildableCount / samplingPoints.length * 100).toFixed(1);
-    console.log(`✓ Terrain analysis complete: ${buildablePercentage}% buildable`);
+    // Calculate actual land area
+    const landCoords = coordinates.map(c => [c.lng, c.lat]);
+    landCoords.push([coordinates[0].lng, coordinates[0].lat]); // Close polygon
+    const landPolygon = turf.polygon([landCoords]);
+    const landAreaSqm = turf.area(landPolygon); // in square meters
+
+    // Calculate buildable area based on both sampling points AND Vision analysis
+    let buildableAreaSqm = (buildableCount / samplingPoints.length) * landAreaSqm;
+
+    // If Vision detected significant water coverage, adjust buildable area
+    if (visionAnalysis && visionAnalysis.waterBodies.length > 0) {
+      const totalWaterPercentage = visionAnalysis.waterBodies.reduce((sum: number, w: any) =>
+        sum + (w.location.estimatedPercentage || 0), 0);
+
+      if (totalWaterPercentage > 50) {
+        // If more than 50% is water, use Vision analysis as primary source
+        buildableAreaSqm = landAreaSqm * (1 - totalWaterPercentage / 100);
+        console.log(`  Vision detected ${totalWaterPercentage.toFixed(0)}% water coverage - adjusted buildable area`);
+      }
+    }
+
+    const buildablePercentage = (buildableAreaSqm / landAreaSqm * 100).toFixed(1);
+    console.log(`✓ Terrain analysis complete: ${buildablePercentage}% buildable (${buildableAreaSqm.toFixed(0)} sqm)`);
 
     return {
-      buildableArea: buildableCount / samplingPoints.length, // percentage as 0-1
+      buildableArea: buildableAreaSqm, // in square meters (NOT percentage)
       restrictedAreas: clusteredRestrictions,
       averageSlope: avgSlope,
       elevationRange: {
@@ -370,7 +478,62 @@ export class TerrainAnalysisService {
   }
 
   /**
-   * Create restricted zones directly from OSM geometries (more accurate than clustering)
+   * Create restricted zones from Bedrock Vision analysis (more accurate than OSM)
+   */
+  private createRestrictedZonesFromVision(
+    visionAnalysis: any,
+    landBoundary: Coordinate[]
+  ): RestrictedZone[] {
+    const zones: RestrictedZone[] = [];
+
+    // Create land boundary polygon
+    const landCoords = landBoundary.map(c => [c.lng, c.lat]);
+    landCoords.push([landBoundary[0].lng, landBoundary[0].lat]); // Close polygon
+    const landPolygon = turf.polygon([landCoords]);
+    const landArea = turf.area(landPolygon);
+
+    // Convert Vision water body detections to restricted zones
+    if (visionAnalysis.waterBodies && visionAnalysis.waterBodies.length > 0) {
+      for (const waterBody of visionAnalysis.waterBodies) {
+        // For water bodies, create a restricted zone covering the estimated percentage
+        const waterPercentage = waterBody.location.estimatedPercentage || 0;
+
+        if (waterPercentage > 10) {
+          // If more than 10% water coverage, mark the entire polygon as water-restricted
+          // This is conservative but safe - prevents building on water
+          zones.push({
+            type: 'water',
+            coordinates: landBoundary,
+            area: landArea * (waterPercentage / 100),
+            reason: `${waterBody.details} (${waterBody.location.description}) - ${waterPercentage.toFixed(0)}% coverage detected by satellite imagery`,
+            severity: 'prohibited',
+          });
+        }
+      }
+    }
+
+    // Add forest zones as warnings (not prohibited)
+    if (visionAnalysis.forests && visionAnalysis.forests.length > 0) {
+      for (const forest of visionAnalysis.forests) {
+        const forestPercentage = forest.location.estimatedPercentage || 0;
+        if (forestPercentage > 20) {
+          zones.push({
+            type: 'forest',
+            coordinates: landBoundary,
+            area: landArea * (forestPercentage / 100),
+            reason: `${forest.details} (${forest.location.description}) - may require environmental clearance`,
+            severity: 'warning',
+          });
+        }
+      }
+    }
+
+    console.log(`  Created ${zones.length} restricted zones from Bedrock Vision analysis`);
+    return zones;
+  }
+
+  /**
+   * Create restricted zones directly from OSM geometries (fallback when Vision unavailable)
    * Clips all zones to land boundary to avoid extending outside selected area
    */
   private createRestrictedZonesFromOSM(

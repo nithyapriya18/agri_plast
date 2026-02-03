@@ -129,6 +129,7 @@ Current planning rules:
 - Minimum 2m gap between polyhouses
 - Maximum side length: 100m
 - Minimum side length: 16m
+- Minimum blocks per polyhouse: ${currentPlan?.configuration?.minimumBlocksPerPolyhouse || 10} (user can change this by saying "set minimum blocks to X")
 - Polyhouses oriented north-south (with latitude-based adjustments)
 
 OPTIMIZATION LEVELS - Users can request different space utilization strategies:
@@ -173,6 +174,12 @@ WHEN USERS REQUEST CHANGES - TAKE ACTION:
 - Interpret intent → they want more coverage
 - IMMEDIATELY trigger "[RECALCULATE:MAXIMIZE]"
 - Brief: "Let me fill those gaps for you..."
+
+**Minimum Blocks per Polyhouse** (phrases like "set minimum blocks to X", "minimum X blocks per polyhouse", "don't create polyhouses with less than X blocks"):
+- IMMEDIATELY trigger "[RECALCULATE]" with the extracted number
+- Brief: "Setting minimum blocks per polyhouse to X..."
+- This prevents creating very small polyhouses that might not be cost-effective
+- Default is 10 blocks (80m² per polyhouse minimum)
 
 **RESTRICTED ZONES (Water, Steep Slopes, etc.):**
 By default, we do NOT build on restricted areas for safety and regulatory reasons.
@@ -352,10 +359,16 @@ When answering questions, consider the local climate and latitude when giving ad
    * Check if response indicates recalculation is needed
    */
   private checkIfRecalculationNeeded(response: string): boolean {
-    return response.includes('[RECALCULATE]') ||
+    // Check for explicit recalculate tags
+    const hasRecalculateTag = response.includes('[RECALCULATE]') ||
            response.includes('[RECALCULATE:MAXIMIZE]') ||
            response.includes('[RECALCULATE:IGNORE_RESTRICTIONS]') ||
            response.includes('[RECALCULATE:UNIFORM_ORIENTATION');
+
+    // Check for minimum blocks changes
+    const hasMinimumBlocksChange = /minimum\s+blocks?\s+(?:per\s+polyhouse\s+)?(?:to\s+)?(\d+)/i.test(response);
+
+    return hasRecalculateTag || hasMinimumBlocksChange;
   }
 
   /**
@@ -415,6 +428,16 @@ When answering questions, consider the local climate and latitude when giving ad
       changes._uniformOrientation = true;
 
       return changes;
+    }
+
+    // Check for minimum blocks per polyhouse changes
+    const minimumBlocksMatch = response.match(/minimum\s+blocks?\s+(?:per\s+polyhouse\s+)?(?:to\s+)?(\d+)/i);
+    if (minimumBlocksMatch) {
+      const requestedMinBlocks = parseInt(minimumBlocksMatch[1]);
+      if (requestedMinBlocks >= 1 && requestedMinBlocks <= 100) {
+        console.log(`📦 User requested minimum blocks per polyhouse: ${requestedMinBlocks}`);
+        changes.minimumBlocksPerPolyhouse = requestedMinBlocks;
+      }
     }
 
     // Check for other specific changes

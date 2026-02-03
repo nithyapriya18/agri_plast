@@ -28,10 +28,12 @@ settingsRouter.get('/', async (req: Request, res: Response) => {
       max_land_area: 10000.0,
       placement_strategy: 'balanced',
       solar_orientation_enabled: true,
+      allow_mixed_orientations: false,
       avoid_water: true,
       consider_slope: false,
       max_slope: 15.0,
       land_leveling_override: false,
+      minimum_blocks_per_polyhouse: 10,
     });
   } catch (error) {
     console.error('Error fetching user settings:', error);

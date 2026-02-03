@@ -96,6 +96,9 @@ export interface PolyhouseConfiguration {
   // Corner constraints
   minCornerDistance: number; // 20 meters (minimum distance between corners)
 
+  // Polyhouse block constraints
+  minimumBlocksPerPolyhouse: number; // 10 blocks (default) - minimum number of blocks per polyhouse
+
   // Area constraints
   maxLandArea: number; // 1000 sqm (default)
 
