@@ -30,7 +30,7 @@ export function VersionHistory({ projectId, currentVersion, onSelectVersion }: V
 
     setLoading(true);
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/projects/${projectId}/versions`);
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL ?? ''}/api/projects/${projectId}/versions`);
       if (response.ok) {
         const data = await response.json();
         setVersions(data.versions);

@@ -3,7 +3,7 @@
 import { useEffect, useState, Fragment } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { createClient } from '@/lib/supabase/client';
+import { getUserSession, clearUserSession } from '@/lib/utils/userStorage';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { generateProjectPDF } from '@/lib/pdfExport';
 
@@ -21,6 +21,9 @@ interface Project {
   created_at: string;
   updated_at: string;
   chat_summary?: string;
+  version?: number;
+  polyhouses?: unknown;
+  quotation?: unknown;
 }
 
 export default function DashboardPage() {
@@ -37,54 +40,20 @@ export default function DashboardPage() {
 
   const loadUserAndProjects = async () => {
     try {
-      const supabase = createClient();
-
-      // Get current user
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-
-      if (!user) {
+      const session = getUserSession();
+      if (!session) {
         router.push('/login');
         return;
       }
+      const currentUser = { id: session.userId, email: session.email };
+      setUser(currentUser);
 
-      setUser(user);
-
-      // Load projects (only latest versions)
-      const { data, error } = await supabase
-        .from('projects')
-        .select('*')
-        .eq('is_latest', true)
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-
-      // Load chat summaries for each project
-      const projectsWithSummaries = await Promise.all(
-        (data || []).map(async (project) => {
-          const { data: messages } = await supabase
-            .from('chat_messages')
-            .select('content, role')
-            .eq('project_id', project.id)
-            .order('created_at', { ascending: false })
-            .limit(10);
-
-          let summary = '';
-          if (messages && messages.length > 0) {
-            const userMessages = messages.filter(m => m.role === 'user');
-            if (userMessages.length > 0) {
-              // Take last 3 user messages and create summary
-              const recentTopics = userMessages.slice(0, 3).map(m => m.content);
-              summary = recentTopics.join('; ').substring(0, 100) + (recentTopics.join('; ').length > 100 ? '...' : '');
-            }
-          }
-
-          return { ...project, chat_summary: summary };
-        })
-      );
-
-      setProjects(projectsWithSummaries);
+      const base = process.env.NEXT_PUBLIC_API_URL ?? '';
+      const res = await fetch(`${base}/api/projects?userId=${currentUser.id}&onlyLatest=true`);
+      if (res.ok) {
+        const { projects: list } = await res.json();
+        setProjects((list || []).map((p: Project) => ({ ...p, chat_summary: p.chat_summary ?? '' })));
+      }
     } catch (error) {
       console.error('Error loading projects:', error);
     } finally {
@@ -92,22 +61,17 @@ export default function DashboardPage() {
     }
   };
 
-  const handleLogout = async () => {
-    const supabase = createClient();
-    await supabase.auth.signOut();
+  const handleLogout = () => {
+    clearUserSession();
     router.push('/login');
   };
 
   const handleDeleteProject = async (projectId: string) => {
     if (!confirm('Are you sure you want to delete this project?')) return;
-
     try {
-      const supabase = createClient();
-      const { error } = await supabase.from('projects').delete().eq('id', projectId);
-
-      if (error) throw error;
-
-      // Reload projects
+      const base = process.env.NEXT_PUBLIC_API_URL ?? '';
+      const res = await fetch(`${base}/api/projects/${projectId}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error('Delete failed');
       setProjects(projects.filter((p) => p.id !== projectId));
     } catch (error) {
       console.error('Error deleting project:', error);
@@ -131,7 +95,7 @@ export default function DashboardPage() {
       if (!projectVersions[projectId]) {
         try {
           const response = await fetch(
-            `${process.env.NEXT_PUBLIC_API_URL}/api/projects/${projectId}/versions`
+            `${process.env.NEXT_PUBLIC_API_URL ?? ''}/api/projects/${projectId}/versions`
           );
 
           if (response.ok) {
@@ -150,19 +114,10 @@ export default function DashboardPage() {
 
   const handleExportProject = async (projectId: string) => {
     try {
-      const supabase = createClient();
-
-      // Fetch full project data including polyhouses
-      const { data: project, error } = await supabase
-        .from('projects')
-        .select('*')
-        .eq('id', projectId)
-        .single();
-
-      if (error) throw error;
-      if (!project) throw new Error('Project not found');
-
-      // Generate PDF
+      const base = process.env.NEXT_PUBLIC_API_URL ?? '';
+      const res = await fetch(`${base}/api/projects/${projectId}`);
+      if (!res.ok) throw new Error('Project not found');
+      const project = await res.json();
       await generateProjectPDF({
         projectName: project.name,
         locationName: project.location_name || 'Not specified',
@@ -171,8 +126,8 @@ export default function DashboardPage() {
         totalCoverageSqm: project.total_coverage_sqm,
         utilizationPercentage: project.utilization_percentage,
         estimatedCost: project.estimated_cost,
-        polyhouses: project.polyhouses || [],
-        quotation: project.quotation || {},
+        polyhouses: Array.isArray(project.polyhouses) ? project.polyhouses : [],
+        quotation: (project.quotation as object) || {},
         createdAt: project.created_at,
       });
     } catch (error) {

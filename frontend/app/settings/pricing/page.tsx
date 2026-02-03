@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { createClient } from '@/lib/supabase/client';
+import { getUserSession } from '@/lib/utils/userStorage';
 import { Download, Upload } from 'lucide-react';
 import ExcelJS from 'exceljs';
 import { ThemeToggle } from '@/components/ThemeToggle';
@@ -51,23 +51,16 @@ export default function PricingConfigPage() {
 
   const loadData = async () => {
     try {
-      const supabase = createClient();
-
-      // Get current user
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-
-      if (!user) {
+      const session = getUserSession();
+      if (!session) {
         router.push('/login');
         return;
       }
+      const currentUser = { id: session.userId, email: session.email };
+      setUser(currentUser);
 
-      setUser(user);
-
-      // Load user's pricing settings
       const userPricingResponse = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/api/pricing/user?userId=${user.id}`
+        `${process.env.NEXT_PUBLIC_API_URL ?? ''}/api/pricing/user?userId=${currentUser.id}`
       );
 
       if (userPricingResponse.ok) {
@@ -78,7 +71,7 @@ export default function PricingConfigPage() {
 
       // Load default pricing catalog
       const defaultPricingResponse = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/api/pricing/defaults`
+        `${process.env.NEXT_PUBLIC_API_URL ?? ''}/api/pricing/defaults`
       );
 
       if (defaultPricingResponse.ok) {
@@ -102,7 +95,7 @@ export default function PricingConfigPage() {
     setSaving(true);
     try {
       const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/api/pricing/user/update`,
+        `${process.env.NEXT_PUBLIC_API_URL ?? ''}/api/pricing/user/update`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -136,7 +129,7 @@ export default function PricingConfigPage() {
     setSaving(true);
     try {
       const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/api/pricing/user/reset`,
+        `${process.env.NEXT_PUBLIC_API_URL ?? ''}/api/pricing/user/reset`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },

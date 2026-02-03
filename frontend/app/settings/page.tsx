@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { createClient } from '@/lib/supabase/client';
+import { getUserSession } from '@/lib/utils/userStorage';
 import { ThemeToggle } from '@/components/ThemeToggle';
 
 interface UserSettings {
@@ -58,34 +58,17 @@ export default function SettingsPage() {
 
   const loadSettings = async () => {
     try {
-      const supabase = createClient();
-
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-
-      if (!user) {
+      const session = getUserSession();
+      if (!session) {
         router.push('/login');
         return;
       }
+      setUser({ id: session.userId, email: session.email });
 
-      setUser(user);
-
-      // Load user settings (use defaults if fails)
-      const { data, error } = await supabase
-        .from('user_settings')
-        .select('*')
-        .eq('user_id', user.id)
-        .single();
-
-      if (error && error.code !== 'PGRST116') {
-        // PGRST116 = not found, which is okay for new users
-        // Other errors: just log and use defaults
-        console.warn('Could not load user settings, using defaults:', error.message);
-      }
-
-      if (data) {
-        // Merge with defaults to ensure all fields are defined
+      const base = process.env.NEXT_PUBLIC_API_URL ?? '';
+      const res = await fetch(`${base}/api/user_settings?userId=${session.userId}`);
+      if (res.ok) {
+        const data = await res.json();
         setSettings({
           polyhouse_gap: data.polyhouse_gap ?? 2.0,
           max_side_length: data.max_side_length ?? 100.0,
@@ -115,37 +98,23 @@ export default function SettingsPage() {
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!user) return;
     setSaving(true);
     setMessage(null);
-
     try {
-      const supabase = createClient();
-
-      const { error } = await supabase
-        .from('user_settings')
-        .upsert(
-          {
-            user_id: user.id,
-            ...settings,
-            updated_at: new Date().toISOString(),
-          },
-          { onConflict: 'user_id' }
-        );
-
-      if (error) {
-        console.error('Supabase error details:', {
-          message: error.message,
-          details: error.details,
-          hint: error.hint,
-          code: error.code,
-        });
-        throw new Error(error.message || 'Failed to save settings');
+      const base = process.env.NEXT_PUBLIC_API_URL ?? '';
+      const res = await fetch(`${base}/api/user_settings`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: user.id, ...settings }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err?.message || 'Failed to save settings');
       }
-
       setMessage({ type: 'success', text: 'Settings saved successfully!' });
-    } catch (error: any) {
-      console.error('Error saving settings:', error);
-      const errorMessage = error?.message || 'Failed to save settings. Please try again.';
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to save settings. Please try again.';
       setMessage({ type: 'error', text: errorMessage });
     } finally {
       setSaving(false);
@@ -176,6 +145,7 @@ export default function SettingsPage() {
       consider_slope: false,
       max_slope: 15.0,
       land_leveling_override: false,
+      minimum_blocks_per_polyhouse: 10,
     });
   };
 

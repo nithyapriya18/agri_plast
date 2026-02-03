@@ -3,14 +3,14 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
-import { PlanningResult, ConversationMessage, Coordinate } from '@shared/types';
+import { PlanningResult, ConversationMessage, Coordinate } from '@/lib/shared/types';
 import EnhancedChatInterface from '@/components/EnhancedChatInterface';
 import QuotationPanel from '@/components/QuotationPanel';
 import ControlPanel from '@/components/ControlPanel';
 import OptimizationLogs from '@/components/OptimizationLogs';
 import TerrainInfoPanel from '@/components/TerrainInfoPanel';
 // CustomerPreferencesModal removed - now uses default sun-oriented optimization
-import { createClient } from '@/lib/supabase/client';
+import { getUserSession } from '@/lib/utils/userStorage';
 import { Loader2 } from 'lucide-react';
 
 // Dynamic import for MapComponent to avoid SSR issues
@@ -69,16 +69,13 @@ export default function NewProjectPage() {
     checkAuth();
   }, []);
 
-  const checkAuth = async () => {
-    const supabase = createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-
-    if (!user) {
+  const checkAuth = () => {
+    const session = getUserSession();
+    if (!session) {
       router.push('/login?redirectTo=/projects/new');
       return;
     }
-
-    setUser(user);
+    setUser({ id: session.userId, email: session.email });
   };
 
   const handleDetailsSubmit = (e: React.FormEvent) => {
@@ -229,25 +226,13 @@ export default function NewProjectPage() {
     };
 
     try {
-      // Load user settings from Supabase (optional - use defaults if fails)
-      const supabase = createClient();
-      let userSettings = null;
-
+      let userSettings: Record<string, unknown> | null = null;
       try {
-        const { data, error } = await supabase
-          .from('user_settings')
-          .select('*')
-          .eq('user_id', user.id)
-          .maybeSingle();
-
-        if (!error && data) {
-          userSettings = data;
-          console.log('✓ Loaded user settings from Supabase');
-        } else {
-          console.log('⚠ No user settings found, using defaults');
-        }
-      } catch (settingsError) {
-        console.log('⚠ Using default settings (could not load from Supabase)');
+        const base = process.env.NEXT_PUBLIC_API_URL ?? '';
+        const res = await fetch(`${base}/api/user_settings?userId=${user.id}`);
+        if (res.ok) userSettings = await res.json();
+      } catch {
+        console.log('⚠ Using default settings (could not load from API)');
       }
 
       // Merge user settings with config overrides (use defaults if no settings)
@@ -274,7 +259,7 @@ export default function NewProjectPage() {
         }),
       };
 
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/planning/create`, {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL ?? ''}/api/planning/create`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -459,38 +444,31 @@ export default function NewProjectPage() {
   const handleSaveProject = async () => {
     if (!planningResult || !user) return;
 
+    const payload = {
+      user_id: user.id,
+      name: projectDetails.name,
+      description: projectDetails.description || null,
+      land_boundary: planningResult.landArea.coordinates,
+      land_area_sqm: planningResult.landArea.area,
+      polyhouse_count: planningResult.polyhouses.length,
+      total_coverage_sqm: planningResult.metadata.totalPolyhouseAreaWithGutters,
+      utilization_percentage: planningResult.metadata.utilizationPercentage,
+      estimated_cost: planningResult.quotation.totalCost,
+      configuration: planningResult.configuration,
+      polyhouses: planningResult.polyhouses,
+      quotation: planningResult.quotation,
+      status: 'draft',
+    };
+
     try {
-      const supabase = createClient();
-
-      const { data: project, error } = await supabase
-        .from('projects')
-        .insert({
-          user_id: user.id,
-          name: projectDetails.name,
-          description: projectDetails.description || null,
-          customer_company_name: projectDetails.customerCompanyName || null,
-          contact_name: projectDetails.contactName || null,
-          contact_email: projectDetails.contactEmail || null,
-          contact_phone: projectDetails.contactPhone || null,
-          location_name: projectDetails.locationName || null,
-          location_address: projectDetails.locationAddress || null,
-          land_boundary: planningResult.landArea.coordinates,
-          land_area_sqm: planningResult.landArea.area,
-          polyhouse_count: planningResult.polyhouses.length,
-          total_coverage_sqm: planningResult.metadata.totalPolyhouseAreaWithGutters,
-          utilization_percentage: planningResult.metadata.utilizationPercentage,
-          estimated_cost: planningResult.quotation.totalCost,
-          configuration: planningResult.configuration,
-          polyhouses: planningResult.polyhouses,
-          quotation: planningResult.quotation,
-          terrain_analysis: planningResult.terrainAnalysis,
-          status: 'draft',
-        })
-        .select()
-        .single();
-
-      if (error) throw error;
-
+      const base = process.env.NEXT_PUBLIC_API_URL ?? '';
+      const res = await fetch(`${base}/api/projects`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) throw new Error('Failed to save');
+      const project = await res.json();
       setProjectId(project.id);
       alert('Project saved successfully!');
       router.push('/dashboard');
@@ -519,7 +497,7 @@ export default function NewProjectPage() {
     setConversationHistory(prev => [...prev, thinkingMessage]);
 
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/chat`, {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL ?? ''}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

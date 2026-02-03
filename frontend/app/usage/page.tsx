@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { createClient } from '@/lib/supabase/client';
+import { getUserSession } from '@/lib/utils/userStorage';
 
 interface UsageLog {
   id: string;
@@ -41,19 +41,13 @@ export default function UsagePage() {
 
   const loadUsageData = async () => {
     try {
-      const supabase = createClient();
-
-      // Get current user
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-
-      if (!user) {
+      const session = getUserSession();
+      if (!session) {
         router.push('/login');
         return;
       }
-
-      setUser(user);
+      const currentUser = { id: session.userId, email: session.email };
+      setUser(currentUser);
 
       // Calculate date range
       const endDate = new Date();
@@ -68,7 +62,7 @@ export default function UsagePage() {
 
       // Fetch usage summary from backend
       const summaryResponse = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/api/usage/summary?userId=${user.id}&startDate=${startDate.toISOString()}&endDate=${endDate.toISOString()}`
+        `${process.env.NEXT_PUBLIC_API_URL ?? ''}/api/usage/summary?userId=${currentUser.id}&startDate=${startDate.toISOString()}&endDate=${endDate.toISOString()}`
       );
 
       if (summaryResponse.ok) {
@@ -78,7 +72,7 @@ export default function UsagePage() {
 
       // Fetch recent logs from backend
       const logsResponse = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/api/usage/logs?userId=${user.id}&startDate=${startDate.toISOString()}&endDate=${endDate.toISOString()}`
+        `${process.env.NEXT_PUBLIC_API_URL ?? ''}/api/usage/logs?userId=${currentUser.id}&startDate=${startDate.toISOString()}&endDate=${endDate.toISOString()}`
       );
 
       if (logsResponse.ok) {

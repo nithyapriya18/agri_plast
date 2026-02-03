@@ -3,12 +3,12 @@
 import { useState, useEffect, use } from 'react';
 import { useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
-import { PlanningResult, Polyhouse, ConversationMessage } from '@shared/types';
+import { PlanningResult, Polyhouse, ConversationMessage } from '@/lib/shared/types';
 import QuotationPanel from '@/components/QuotationPanel';
 import EnhancedChatInterface from '@/components/EnhancedChatInterface';
 import OptimizationFactorsPanel from '@/components/OptimizationFactorsPanel';
 import { VersionHistory } from '@/components/VersionHistory';
-import { createClient } from '@/lib/supabase/client';
+import { getUserSession } from '@/lib/utils/userStorage';
 import { Loader2, Download } from 'lucide-react';
 import { generateProjectPDF } from '@/lib/pdfExport';
 
@@ -63,21 +63,16 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
 
   const loadProject = async () => {
     try {
-      const supabase = createClient();
-
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
+      const session = getUserSession();
+      if (!session) {
         router.push('/login?redirectTo=/projects/' + id);
         return;
       }
 
-      const { data, error } = await supabase
-        .from('projects')
-        .select('*')
-        .eq('id', id)
-        .single();
-
-      if (error) throw error;
+      const base = process.env.NEXT_PUBLIC_API_URL ?? '';
+      const res = await fetch(`${base}/api/projects/${id}`);
+      if (!res.ok) throw new Error('Project not found');
+      const data = await res.json();
 
       console.log('Loaded project:', data);
       console.log('Land boundary:', data?.land_boundary);
@@ -229,7 +224,7 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
 
         // Store this in the backend's planningResults Map by making a POST request
         // We'll use the project ID as the planning result ID
-        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/planning/load`, {
+        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL ?? ''}/api/planning/load`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -260,17 +255,15 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
 
   const handleStatusUpdate = async (newStatus: string) => {
     if (!project) return;
-
     setStatusUpdating(true);
     try {
-      const supabase = createClient();
-      const { error } = await supabase
-        .from('projects')
-        .update({ status: newStatus })
-        .eq('id', project.id);
-
-      if (error) throw error;
-
+      const base = process.env.NEXT_PUBLIC_API_URL ?? '';
+      const res = await fetch(`${base}/api/projects/${project.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: newStatus }),
+      });
+      if (!res.ok) throw new Error('Update failed');
       setProject({ ...project, status: newStatus });
       alert('Status updated successfully');
     } catch (error) {
@@ -284,16 +277,10 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
   const handleDelete = async () => {
     if (!project) return;
     if (!confirm('Are you sure you want to delete this project? This action cannot be undone.')) return;
-
     try {
-      const supabase = createClient();
-      const { error } = await supabase
-        .from('projects')
-        .delete()
-        .eq('id', project.id);
-
-      if (error) throw error;
-
+      const base = process.env.NEXT_PUBLIC_API_URL ?? '';
+      const res = await fetch(`${base}/api/projects/${project.id}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error('Delete failed');
       alert('Project deleted successfully');
       router.push('/dashboard');
     } catch (error) {
@@ -316,7 +303,7 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
     setConversationHistory(prev => [...prev, userMessage]);
 
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/chat`, {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL ?? ''}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -432,10 +419,11 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
 
         // Save to database in background (async, non-blocking)
         setHasUnsavedChanges(true);
-        const supabase = createClient();
-        supabase
-          .from('projects')
-          .update({
+        const base = process.env.NEXT_PUBLIC_API_URL ?? '';
+        fetch(`${base}/api/projects/${project.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
             polyhouses: polyhousesWithCorners,
             configuration: data.updatedPlanningResult.configuration,
             quotation: data.updatedPlanningResult.quotation,
@@ -443,17 +431,16 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
             total_coverage_sqm: data.updatedPlanningResult.metadata.totalPolyhouseAreaWithGutters,
             utilization_percentage: data.updatedPlanningResult.metadata.utilizationPercentage,
             estimated_cost: data.updatedPlanningResult.quotation.totalCost,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', project.id)
-          .then(({ error }) => {
-            if (error) {
-              console.error('Background save failed:', error);
-            } else {
+          }),
+        })
+          .then((res) => {
+            if (!res.ok) console.error('Background save failed');
+            else {
               console.log('  ✅ Changes saved to database');
               setHasUnsavedChanges(false);
             }
-          });
+          })
+          .catch((err) => console.error('Background save failed:', err));
       }
     } catch (error) {
       console.error('Error sending message:', error);
@@ -533,12 +520,10 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
 
     setSaving(true);
     try {
-      const supabase = createClient();
-
       const boundaryToUse = modifiedBoundary || project.land_boundary;
 
       // Trigger re-optimization with the new boundary
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/planning/create`, {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL ?? ''}/api/planning/create`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -554,41 +539,35 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
       const optimizationResult = await response.json();
 
       if (saveAsNew) {
-        // Create new project
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) throw new Error('User not authenticated');
-
-        const newProject = {
-          user_id: user.id,
-          name: `${project.name} (Copy)`,
-          location_name: project.location_name,
-          land_boundary: boundaryToUse,
-          land_area_sqm: optimizationResult.metadata.totalLandArea,
-          polyhouse_count: optimizationResult.metadata.numberOfPolyhouses,
-          total_coverage_sqm: optimizationResult.metadata.totalPolyhouseArea,
-          utilization_percentage: optimizationResult.metadata.utilizationPercentage,
-          estimated_cost: optimizationResult.quotation?.totalCost || 0,
-          configuration: project.configuration,
-          polyhouses: optimizationResult.polyhouses,
-          quotation: optimizationResult.quotation,
-          terrain_analysis: optimizationResult.terrainAnalysis,
-          status: 'draft',
-        };
-
-        const { data, error } = await supabase
-          .from('projects')
-          .insert([newProject])
-          .select()
-          .single();
-
-        if (error) throw error;
-
+        const session = getUserSession();
+        if (!session) throw new Error('User not authenticated');
+        const base = process.env.NEXT_PUBLIC_API_URL ?? '';
+        const createRes = await fetch(`${base}/api/projects`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            user_id: session.userId,
+            name: `${project.name} (Copy)`,
+            land_boundary: boundaryToUse,
+            land_area_sqm: optimizationResult.metadata?.totalLandArea ?? 0,
+            polyhouse_count: optimizationResult.polyhouses?.length ?? 0,
+            total_coverage_sqm: optimizationResult.metadata?.totalPolyhouseArea ?? 0,
+            utilization_percentage: optimizationResult.metadata?.utilizationPercentage ?? 0,
+            estimated_cost: optimizationResult.quotation?.totalCost ?? 0,
+            configuration: project.configuration,
+            polyhouses: optimizationResult.polyhouses ?? [],
+            quotation: optimizationResult.quotation ?? {},
+            status: 'draft',
+          }),
+        });
+        if (!createRes.ok) throw new Error('Failed to create project');
+        const data = await createRes.json();
         alert('New project created successfully. Redirecting to new project...');
         router.push(`/projects/${data.id}`);
       } else {
         // Create new version (don't leave the page, stay on the same project with new version)
         const versionResponse = await fetch(
-          `${process.env.NEXT_PUBLIC_API_URL}/api/projects/${project.id}/create-version`,
+          `${process.env.NEXT_PUBLIC_API_URL ?? ''}/api/projects/${project.id}/create-version`,
           {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },

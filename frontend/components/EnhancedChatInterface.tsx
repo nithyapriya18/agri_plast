@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { ConversationMessage, PlanningResult } from '@shared/types';
+import { ConversationMessage, PlanningResult } from '@/lib/shared/types';
 import { Send, Bot, User, ThumbsUp, ThumbsDown, ChevronDown, ChevronUp, RotateCcw, Brain, Settings } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 

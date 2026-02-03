@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { ConversationMessage } from '@shared/types';
+import { ConversationMessage } from '@/lib/shared/types';
 import { Send, Bot, User } from 'lucide-react';
 
 interface ChatInterfaceProps {

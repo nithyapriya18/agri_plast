@@ -9,11 +9,14 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@aws-sdk/client-bedrock-runtime": "^3.716.0",
     "@mapbox/mapbox-gl-draw": "^1.4.3",
+    "@neondatabase/serverless": "^1.0.2",
     "@supabase/ssr": "^0.8.0",
     "@supabase/supabase-js": "^2.93.3",
     "@turf/turf": "^7.1.0",
     "axios": "^1.7.9",
+    "date-fns": "^4.1.0",
     "exceljs": "^4.4.0",
     "html2canvas": "^1.4.1",
     "jspdf": "^4.1.0",

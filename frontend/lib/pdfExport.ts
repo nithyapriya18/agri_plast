@@ -1,6 +1,6 @@
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
-import { Polyhouse } from '@shared/types';
+import { Polyhouse } from '@/lib/shared/types';
 
 export interface ExportData {
   projectName: string;

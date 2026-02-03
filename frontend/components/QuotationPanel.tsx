@@ -1,6 +1,6 @@
 'use client';
 
-import { PlanningResult } from '@shared/types';
+import { PlanningResult } from '@/lib/shared/types';
 import { Receipt, TrendingUp, MapPin, Grid } from 'lucide-react';
 
 interface QuotationPanelProps {

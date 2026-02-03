@@ -6,18 +6,32 @@ export async function middleware(request: NextRequest) {
     request,
   });
 
+  const pathname = request.nextUrl.pathname;
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  const googleUserId = request.cookies.get('agriplast_user_id')?.value;
+  const allCookies = request.cookies.getAll().map((c) => c.name);
+  console.log('[middleware] path=', pathname, 'agriplast_user_id=', googleUserId ?? 'MISSING', 'cookies=', allCookies.join(','));
+
   if (!supabaseUrl || !supabaseAnonKey) {
     const protectedPaths = ['/dashboard', '/projects', '/settings'];
     const isProtectedPath = protectedPaths.some((path) =>
-      request.nextUrl.pathname.startsWith(path)
+      pathname.startsWith(path)
     );
-    if (isProtectedPath) {
+    const hasSession = !!googleUserId;
+    console.log('[middleware] no Supabase; isProtectedPath=', isProtectedPath, 'hasSession=', hasSession);
+    if (isProtectedPath && !hasSession) {
       const url = request.nextUrl.clone();
       url.pathname = '/login';
-      url.searchParams.set('redirectTo', request.nextUrl.pathname);
+      url.searchParams.set('redirectTo', pathname);
+      console.log('[middleware] redirecting to login (no session)');
       return NextResponse.redirect(url);
+    }
+    if (pathname === '/login' || pathname === '/signup') {
+      if (hasSession) {
+        console.log('[middleware] auth path with session, redirecting to /dashboard');
+        return NextResponse.redirect(new URL('/dashboard', request.url));
+      }
     }
     return supabaseResponse;
   }
@@ -71,18 +85,20 @@ export async function middleware(request: NextRequest) {
     request.nextUrl.pathname.startsWith(path)
   );
 
-  if (isProtectedPath && !user) {
+  const googleUserIdSupabase = request.cookies.get('agriplast_user_id')?.value;
+  const hasSession = !!user || !!googleUserIdSupabase;
+
+  if (isProtectedPath && !hasSession) {
     const url = request.nextUrl.clone();
     url.pathname = '/login';
     url.searchParams.set('redirectTo', request.nextUrl.pathname);
     return NextResponse.redirect(url);
   }
 
-  // Redirect to dashboard if already logged in and accessing auth pages
   const authPaths = ['/login', '/signup'];
   const isAuthPath = authPaths.includes(request.nextUrl.pathname);
 
-  if (isAuthPath && user) {
+  if (isAuthPath && hasSession) {
     const url = request.nextUrl.clone();
     url.pathname = '/dashboard';
     return NextResponse.redirect(url);
