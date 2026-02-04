@@ -196,7 +196,7 @@ export class RegulatoryComplianceService {
   }
 
   /**
-   * Identify region from coordinates using comprehensive database
+   * Identify region from coordinates using reverse geocoding
    */
   private async identifyRegion(coordinates: Coordinate[]): Promise<RegulatoryRegion> {
     // Calculate centroid
@@ -205,15 +205,65 @@ export class RegulatoryComplianceService {
 
     console.log(`  Location: ${lat.toFixed(4)}°N, ${lng.toFixed(4)}°E`);
 
-    // Use comprehensive regional database
+    // Try Mapbox reverse geocoding for accurate location identification
+    try {
+      const mapboxToken = process.env.MAPBOX_TOKEN;
+      if (mapboxToken) {
+        const response = await fetch(
+          `https://api.mapbox.com/geocoding/v5/mapbox.places/${lng},${lat}.json?access_token=${mapboxToken}&types=region,country`
+        );
+
+        if (response.ok) {
+          const data = await response.json();
+          if (data.features && data.features.length > 0) {
+            // Extract state/region and country from the response
+            let stateName = '';
+            let countryName = '';
+
+            for (const feature of data.features) {
+              if (feature.place_type.includes('region') && !stateName) {
+                stateName = feature.text;
+              }
+              if (feature.place_type.includes('country') && !countryName) {
+                countryName = feature.text;
+              }
+            }
+
+            if (stateName && countryName) {
+              console.log(`  Reverse geocoded: ${stateName}, ${countryName}`);
+
+              // Try to match with our database
+              const region = this.findRegionByName(stateName, countryName);
+              if (region) {
+                console.log(`  Building codes: ${region.name}, ${region.country}`);
+                return region;
+              }
+
+              // Create a custom region with the geocoded information
+              return {
+                id: `custom-${stateName.toLowerCase().replace(/\s+/g, '-')}`,
+                name: stateName,
+                country: countryName,
+                state: stateName,
+                bounds: { north: lat + 1, south: lat - 1, east: lng + 1, west: lng - 1 },
+              };
+            }
+          }
+        }
+      }
+    } catch (error) {
+      console.warn('  Reverse geocoding failed, falling back to bounding box method:', error);
+    }
+
+    // Fallback: Use comprehensive regional database with bounding boxes
     const region = getRegionByCoordinates(lat, lng);
 
     if (region) {
-      console.log(`  Building codes: ${region.name}, ${region.country}`);
+      console.log(`  Building codes (bounding box): ${region.name}, ${region.country}`);
       return region;
     }
 
-    // Fallback: Generic agricultural zone (no specific local regulations)
+    // Final fallback: Generic agricultural zone (no specific local regulations)
     console.log(`  Using standard agricultural regulations`);
     return {
       id: 'generic',
@@ -221,6 +271,38 @@ export class RegulatoryComplianceService {
       country: 'Generic',
       bounds: { north: lat + 1, south: lat - 1, east: lng + 1, west: lng - 1 },
     };
+  }
+
+  /**
+   * Find region in our database by name
+   */
+  private findRegionByName(stateName: string, countryName: string): RegulatoryRegion | null {
+    // Normalize names for comparison
+    const normalizeState = stateName.toLowerCase().trim();
+    const normalizeCountry = countryName.toLowerCase().trim();
+
+    // Check all region maps
+    const allRegions = [
+      ...Array.from(INDIAN_REGIONS.values()),
+      ...Array.from(US_REGIONS.values()),
+      ...Array.from(EUROPEAN_REGIONS.values()),
+      ...Array.from(AUSTRALIAN_REGIONS.values()),
+    ];
+
+    for (const region of allRegions) {
+      const regionStateName = (region.state || region.name).toLowerCase().trim();
+      const regionCountryName = region.country.toLowerCase().trim();
+
+      // Match both state and country
+      if (regionStateName === normalizeState ||
+          (regionStateName.includes(normalizeState) || normalizeState.includes(regionStateName))) {
+        if (regionCountryName.includes(normalizeCountry) || normalizeCountry.includes(regionCountryName)) {
+          return region;
+        }
+      }
+    }
+
+    return null;
   }
 
   /**

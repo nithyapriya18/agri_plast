@@ -11,7 +11,6 @@ import { VersionHistory } from '@/components/VersionHistory';
 import VersionNotesModal from '@/components/VersionNotesModal';
 import { createClient } from '@/lib/supabase/client';
 import { Loader2, Download, Save } from 'lucide-react';
-import { generateProjectPDF } from '@/lib/pdfExport';
 
 const MapComponent = dynamic(() => import('@/components/MapComponent'), {
   ssr: false,
@@ -69,6 +68,7 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
     if (project?.polyhouses) {
       console.log('🔄 Project polyhouses changed! Count:', project.polyhouses.length);
       console.log('  First polyhouse:', project.polyhouses[0]);
+      console.log('  All polyhouse IDs:', project.polyhouses.map((p: any) => p.id));
     }
   }, [project?.polyhouses]);
 
@@ -582,21 +582,27 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
     }
 
     try {
-      await generateProjectPDF({
+      // Generate both technical drawing and quotation PDFs
+      const { generateProjectReports } = await import('@/lib/technicalDrawing');
+
+      await generateProjectReports({
         projectName: project.name,
+        customerName: (project as any).customer_company_name || 'Valued Customer',
         locationName: project.location_name || 'Not specified',
+        landBoundary: planningResult.landArea.coordinates,
         landAreaSqm: project.land_area_sqm,
+        polyhouses: planningResult.polyhouses,
         polyhouseCount: project.polyhouse_count,
         totalCoverageSqm: project.total_coverage_sqm,
         utilizationPercentage: project.utilization_percentage,
-        estimatedCost: project.estimated_cost,
-        polyhouses: planningResult.polyhouses,
         quotation: project.quotation,
         createdAt: project.created_at,
       });
+
+      alert('Successfully generated 2 files:\n1. Technical Drawing\n2. Quotation Report');
     } catch (error) {
-      console.error('Error exporting PDF:', error);
-      alert('Failed to export PDF. Please try again.');
+      console.error('Error exporting PDFs:', error);
+      alert('Failed to export PDFs. Please try again.');
     }
   };
 
@@ -884,6 +890,7 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
       {/* Main content */}
       <div className="flex-1 relative overflow-hidden" id="project-map-container">
         <MapComponent
+          key={`map-${project.id}-${project.polyhouses?.length || 0}-${JSON.stringify(project.polyhouses?.[0]?.id)}`}
           landBoundary={(() => {
             console.log('Passing landBoundary to MapComponent:', planningResult.landArea.coordinates);
             return planningResult.landArea.coordinates;

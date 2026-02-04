@@ -821,6 +821,35 @@ export default function MapComponent({
           )}
         </div>
       )}
+
+      {/* Compass Rose - Always visible */}
+      <div className="absolute bottom-6 right-6 z-10 pointer-events-none">
+        <svg width="60" height="60" viewBox="0 0 60 60" className="drop-shadow-lg">
+          {/* Outer circle with white background */}
+          <circle cx="30" cy="30" r="28" fill="white" stroke="#374151" strokeWidth="1.5" opacity="0.95" />
+
+          {/* North pointer (red) */}
+          <path d="M 30 8 L 24 28 L 30 25 L 36 28 Z" fill="#EF4444" stroke="#DC2626" strokeWidth="0.5" />
+
+          {/* East pointer */}
+          <path d="M 52 30 L 32 36 L 35 30 L 32 24 Z" fill="#6B7280" stroke="#4B5563" strokeWidth="0.5" />
+
+          {/* South pointer */}
+          <path d="M 30 52 L 36 32 L 30 35 L 24 32 Z" fill="#6B7280" stroke="#4B5563" strokeWidth="0.5" />
+
+          {/* West pointer */}
+          <path d="M 8 30 L 28 24 L 25 30 L 28 36 Z" fill="#6B7280" stroke="#4B5563" strokeWidth="0.5" />
+
+          {/* Center dot */}
+          <circle cx="30" cy="30" r="3" fill="#374151" />
+
+          {/* Direction labels */}
+          <text x="30" y="6" textAnchor="middle" fontSize="10" fontWeight="bold" fill="#DC2626">N</text>
+          <text x="54" y="33" textAnchor="middle" fontSize="9" fontWeight="600" fill="#4B5563">E</text>
+          <text x="30" y="56" textAnchor="middle" fontSize="9" fontWeight="600" fill="#4B5563">S</text>
+          <text x="6" y="33" textAnchor="middle" fontSize="9" fontWeight="600" fill="#4B5563">W</text>
+        </svg>
+      </div>
     </div>
   );
 }

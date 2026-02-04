@@ -119,9 +119,10 @@ export class TerrainAnalysisService {
     // Only restrict: roads (govt), water bodies, and forests
     const { roads, water, forests } = await this.osmService.fetchRoadsAndBuildings(coordinates);
 
-    // Optionally fetch elevation data for slopes (can skip to speed up further)
-    const elevationData = new Map<string, number>(); // Skip elevation for speed
-    // If you need slopes, uncomment: await this.fetchElevationData(samplingPoints);
+    // Fetch REAL elevation data from Copernicus DEM
+    console.log('  📊 Fetching elevation data from Copernicus DEM...');
+    const elevationData = await this.fetchElevationData(samplingPoints);
+    console.log(`  ✓ Elevation data fetched for ${elevationData.size} points`);
 
     // Build terrain grid with all data
     const terrainGrid: TerrainPoint[] = [];
@@ -130,8 +131,9 @@ export class TerrainAnalysisService {
     let buildableCount = 0;
 
     for (const point of samplingPoints) {
-      const elevation = 0; // Skip elevation for speed
-      const slope = 0; // Skip slope calculation for speed
+      // Get REAL elevation and calculate REAL slope
+      const elevation = elevationData.get(this.coordKey(point)) || 0;
+      const slope = this.calculateSlope(point, elevationData, samplingPoints);
 
       // Determine buildability using FAST OSM data
       // Only restrict: water bodies, forests, and roads (government infrastructure)

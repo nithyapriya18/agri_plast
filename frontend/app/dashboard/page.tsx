@@ -5,7 +5,6 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 import { ThemeToggle } from '@/components/ThemeToggle';
-import { generateProjectPDF } from '@/lib/pdfExport';
 
 interface Project {
   id: string;
@@ -140,22 +139,33 @@ export default function DashboardPage() {
       if (error) throw error;
       if (!project) throw new Error('Project not found');
 
-      // Generate PDF
-      await generateProjectPDF({
+      // Validate required data
+      if (!project.land_boundary || !project.polyhouses || project.polyhouses.length === 0) {
+        alert('Project data is incomplete. Cannot generate technical drawing.');
+        return;
+      }
+
+      // Generate both technical drawing and quotation PDFs
+      const { generateProjectReports } = await import('@/lib/technicalDrawing');
+
+      await generateProjectReports({
         projectName: project.name,
+        customerName: project.contact_name || project.customer_company_name || 'Valued Customer',
         locationName: project.location_name || 'Not specified',
+        landBoundary: project.land_boundary,
         landAreaSqm: project.land_area_sqm,
+        polyhouses: project.polyhouses,
         polyhouseCount: project.polyhouse_count,
         totalCoverageSqm: project.total_coverage_sqm,
         utilizationPercentage: project.utilization_percentage,
-        estimatedCost: project.estimated_cost,
-        polyhouses: project.polyhouses || [],
         quotation: project.quotation || {},
         createdAt: project.created_at,
       });
+
+      alert('Successfully generated 2 files:\n1. Technical Drawing\n2. Quotation Report');
     } catch (error) {
       console.error('Error exporting project:', error);
-      alert('Failed to export PDF. Please try again.');
+      alert(`Failed to export PDFs: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   };
 
@@ -291,21 +301,21 @@ export default function DashboardPage() {
             <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
               <thead className="bg-gray-50 dark:bg-gray-900 transition-colors">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider min-w-[150px]">Project</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider min-w-[120px]">Land Area</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider min-w-[100px]">Polyhouses</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider min-w-[100px]">Utilization</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider min-w-[130px]">Cost</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider min-w-[100px]">Status</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider min-w-[200px]">Version Notes</th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider min-w-[200px]">Actions</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-[140px]">Project</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-[110px]">Land Area</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-[90px]">Polyhouses</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-[95px]">Utilization</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-[120px]">Cost</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-[90px]">Status</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-[180px]">Version Notes</th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-[160px]">Actions</th>
                 </tr>
               </thead>
               <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700 transition-colors">
                 {projects.map((project) => (
                   <Fragment key={project.id}>
                     <tr className="hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
-                      <td className="px-6 py-4 min-w-[150px]">
+                      <td className="px-6 py-4 w-[140px]">
                         <div className="flex items-center gap-2">
                           {/* Only show expand button if there are multiple versions */}
                           {(project.version || 1) > 1 ? (
@@ -340,27 +350,27 @@ export default function DashboardPage() {
                           </div>
                         </div>
                       </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300 transition-colors min-w-[120px]">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300 transition-colors w-[110px]">
                       {project.land_area_sqm.toFixed(0)} m²
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300 transition-colors min-w-[100px]">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300 transition-colors w-[90px]">
                       {project.polyhouse_count}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300 transition-colors min-w-[100px]">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300 transition-colors w-[95px]">
                       {project.utilization_percentage.toFixed(1)}%
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300 transition-colors min-w-[130px]">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300 transition-colors w-[120px]">
                       ₹{project.estimated_cost.toLocaleString('en-IN')}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap min-w-[100px]">
+                    <td className="px-6 py-4 whitespace-nowrap w-[90px]">
                       {getStatusBadge(project.status)}
                     </td>
-                    <td className="px-6 py-4 text-sm text-gray-600 dark:text-gray-400 transition-colors min-w-[200px]">
-                      <div className="max-w-xs truncate">
+                    <td className="px-6 py-4 text-sm text-gray-600 dark:text-gray-400 transition-colors w-[180px]">
+                      <div className="break-words">
                         {project.version_name || <span className="text-gray-400 dark:text-gray-500 italic">Initial version</span>}
                       </div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium min-w-[200px]">
+                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium w-[160px]">
                       <Link
                         href={`/projects/${project.id}`}
                         className="text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 mr-4 transition-colors"

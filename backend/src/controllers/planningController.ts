@@ -13,6 +13,7 @@ import * as turf from '@turf/turf';
 import { supabase } from '../lib/supabase';
 import { TerrainAnalysisService } from '../services/terrainAnalysis';
 import { RegulatoryComplianceService } from '../services/regulatoryCompliance';
+import { reverseGeocode } from '../utils/geocoding';
 
 // In-memory storage (replace with database in production)
 const planningResults = new Map<string, PlanningResult>();
@@ -47,10 +48,14 @@ export async function createPlan(req: Request, res: Response) {
     const centroid = turf.centroid(polygon);
     const area = turf.area(polygon);
 
-    // Create land area object with closed coordinates
+    // Reverse geocode to get location name
+    console.log('🌍 Identifying location...');
+    const locationInfo = await reverseGeocode(inputCoordinates);
+
+    // Create land area object with closed coordinates and location name
     const landArea: LandArea = {
       id: `land-${Date.now()}`,
-      name: landAreaInput.name,
+      name: locationInfo.formatted || landAreaInput.name,
       coordinates: inputCoordinates,
       centroid: {
         lat: centroid.geometry.coordinates[1],
@@ -168,10 +173,13 @@ export async function createPlan(req: Request, res: Response) {
       try {
         const complianceService = new RegulatoryComplianceService();
         complianceData = await complianceService.checkCompliance(
-          landArea.centroid,
-          landArea.area,
-          polyhouses,
-          configuration
+          landArea.coordinates,
+          polyhouses.map(p => ({
+            area: p.area,
+            perimeter: p.perimeter,
+            height: 4, // Standard polyhouse height
+            purpose: 'Agriculture - Polyhouse'
+          }))
         );
         console.log(`✓ Regulatory compliance check complete`);
       } catch (error) {

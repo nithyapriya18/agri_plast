@@ -53,6 +53,7 @@ export default function NewProjectPage() {
   const [planningResultId, setPlanningResultId] = useState<string | null>(null);
   const [projectId, setProjectId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [detectedLocation, setDetectedLocation] = useState<string>('');
   const [conversationHistory, setConversationHistory] = useState<ConversationMessage[]>([]);
   const [showChat, setShowChat] = useState(false);
   const [showQuotation, setShowQuotation] = useState(false);
@@ -214,6 +215,7 @@ export default function NewProjectPage() {
   const startOptimization = async (selectedCrop: string) => {
     setCrop(selectedCrop);
     setShowCropSelection(false);
+    setDetectedLocation(''); // Reset location for new optimization
     setLoading(true);
 
     // Always use sun-oriented optimization with maximum utilization
@@ -432,10 +434,28 @@ export default function NewProjectPage() {
         return;
       }
 
+      // Set detected location FIRST for the optimization logs
+      if (data.planningResult.landArea?.name) {
+        setDetectedLocation(data.planningResult.landArea.name);
+        console.log('✓ Location detected:', data.planningResult.landArea.name);
+
+        // Keep console visible for 2 more seconds to show the location
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
+
       setPlanningResult(data.planningResult);
       setPlanningResultId(data.resultId);
       setShowQuotation(true);
       setEditMode(false);
+
+      // Auto-fill location name from reverse geocoding if not already set
+      if (data.planningResult.landArea?.name && !projectDetails.locationName) {
+        setProjectDetails(prev => ({
+          ...prev,
+          locationName: data.planningResult.landArea.name,
+        }));
+        console.log('✓ Auto-filled location name:', data.planningResult.landArea.name);
+      }
 
       if (data.planningResult.metadata?.totalLandArea) {
         setLandAreaSize(data.planningResult.metadata.totalLandArea);
@@ -947,6 +967,7 @@ export default function NewProjectPage() {
               <OptimizationLogs
                 isLoading={loading}
                 landAreaSize={landAreaSize}
+                locationName={detectedLocation}
               />
             </div>
           </div>
