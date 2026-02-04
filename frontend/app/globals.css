@@ -18,13 +18,9 @@ body {
     rgb(var(--background-start-rgb));
 }
 
-/* Mapbox overrides */
-.mapboxgl-canvas {
-  cursor: crosshair !important;
-}
-
-.mapboxgl-ctrl-group button {
-  @apply hover:bg-gray-100;
+/* Google Maps map container - drawing mode cursor */
+.gm-style > div:first-child {
+  cursor: crosshair;
 }
 
 /* Custom scrollbar */
@@ -45,13 +41,34 @@ body {
   @apply bg-gray-500;
 }
 
-/* Polyhouse popup styling */
-.polyhouse-popup .mapboxgl-popup-content {
-  @apply rounded-lg shadow-xl border-2 border-agriplast-green-600 bg-white;
-  padding: 0 !important;
-  font-family: system-ui, -apple-system, sans-serif;
+/* Polyhouse marker styling */
+.polyhouse-marker {
+  background-color: #16a34a;
+  color: white;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: bold;
+  white-space: nowrap;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  border: 1px solid #15803d;
+  cursor: pointer;
+  user-select: none;
 }
 
-.polyhouse-popup .mapboxgl-popup-tip {
-  @apply border-t-agriplast-green-600;
+/* Google Maps InfoWindow styling override - match original Mapbox popup */
+.gm-style .gm-style-iw-c {
+  padding: 0 !important;
+  border-radius: 8px !important;
+  border: 2px solid #16a34a !important;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1) !important;
+}
+
+.gm-style .gm-style-iw-d {
+  overflow: hidden !important;
+  font-family: system-ui, -apple-system, sans-serif !important;
+}
+
+.gm-style .gm-style-iw-t::after {
+  border-top-color: #16a34a !important;
 }

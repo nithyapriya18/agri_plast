@@ -1,21 +1,38 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import mapboxgl from 'mapbox-gl';
-import MapboxDraw from '@mapbox/mapbox-gl-draw';
+import { useJsApiLoader, GoogleMap } from '@react-google-maps/api';
 import { Coordinate, Polyhouse } from '@/lib/shared/types';
-import { X, Minimize2, Maximize2, Search } from 'lucide-react';
-import 'mapbox-gl/dist/mapbox-gl.css';
-import '@mapbox/mapbox-gl-draw/dist/mapbox-gl-draw.css';
+import { X, Minimize2, Search } from 'lucide-react';
+
+const DEFAULT_CENTER = { lng: 77.5946, lat: 12.9716 };
+const MAP_CONTAINER_STYLE = { width: '100%', height: '100%' };
+const MAP_OPTIONS: google.maps.MapOptions = {
+  zoom: 15,
+  center: DEFAULT_CENTER,
+  mapTypeId: 'hybrid',
+  mapTypeControl: true,
+  zoomControl: true,
+  fullscreenControl: true,
+  streetViewControl: false,
+};
+const GOOGLE_MAPS_LIBRARIES: ('drawing' | 'places')[] = ['drawing', 'places'] as const;
 
 interface MapComponentProps {
   landBoundary: Coordinate[];
   polyhouses: Polyhouse[];
   onBoundaryComplete: (coordinates: Coordinate[]) => void;
   loading: boolean;
-  terrainAnalysis?: any;
-  regulatoryCompliance?: any;
+  terrainAnalysis?: { restrictedZones?: Array<{ coordinates: Array<{ lng: number; lat: number }>; type?: string; reason?: string; severity?: string }> };
+  regulatoryCompliance?: unknown;
   editMode: boolean;
+}
+
+interface Suggestion {
+  place_id: string;
+  description: string;
+  lat: number;
+  lng: number;
 }
 
 export default function MapComponent({
@@ -24,698 +41,488 @@ export default function MapComponent({
   onBoundaryComplete,
   loading,
   terrainAnalysis,
-  regulatoryCompliance,
   editMode,
 }: MapComponentProps) {
-  const mapContainer = useRef<HTMLDivElement>(null);
-  const map = useRef<mapboxgl.Map | null>(null);
-  const draw = useRef<MapboxDraw | null>(null);
+  const mapRef = useRef<google.maps.Map | null>(null);
+  const drawingManagerRef = useRef<google.maps.drawing.DrawingManager | null>(null);
+  const boundaryPolygonRef = useRef<google.maps.Polygon | null>(null);
+  const dataLayersRef = useRef<google.maps.Data[]>([]);
+  const markersRef = useRef<google.maps.Marker[]>([]);
+  const infoWindowRef = useRef<google.maps.InfoWindow | null>(null);
+  const hasInitiallyFitBounds = useRef(false);
+
   const [mapLoaded, setMapLoaded] = useState(false);
-  const [styleReady, setStyleReady] = useState(false);
   const [showInstructions, setShowInstructions] = useState(true);
   const [instructionsMinimized, setInstructionsMinimized] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchLoading, setSearchLoading] = useState(false);
-  const [suggestions, setSuggestions] = useState<Array<{ id: string; place_name: string; center: [number, number] }>>([]);
+  const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
-  const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const hasInitiallyFitBounds = useRef(false);
-  const polyhouseMarkersRef = useRef<mapboxgl.Marker[]>([]);
+  const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const autocompleteServiceRef = useRef<google.maps.places.AutocompleteService | null>(null);
 
-  // Initialize map
+  const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || '';
+  const { isLoaded, loadError } = useJsApiLoader({
+    id: 'google-map-script',
+    googleMapsApiKey: apiKey,
+    language: 'en',
+    libraries: GOOGLE_MAPS_LIBRARIES,
+  });
+
   useEffect(() => {
-    if (!mapContainer.current || map.current) return;
+    if (!apiKey) {
+      console.error('❌ NEXT_PUBLIC_GOOGLE_MAPS_API_KEY is missing! Add it to .env.local and restart the dev server.');
+    } else {
+      console.log('✓ Google Maps API key loaded:', apiKey.substring(0, 10) + '...');
+    }
+  }, [apiKey]);
 
-    const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN || '';
-    console.log('Mapbox token loaded:', token ? `${token.substring(0, 10)}...` : 'MISSING');
-    mapboxgl.accessToken = token;
+  const initDrawingManager = (map: google.maps.Map) => {
+    if (drawingManagerRef.current) return;
+    const dm = new google.maps.drawing.DrawingManager({
+      drawingMode: google.maps.drawing.OverlayType.POLYGON,
+      drawingControl: true,
+      drawingControlOptions: {
+        position: google.maps.ControlPosition.TOP_RIGHT,
+        drawingModes: [google.maps.drawing.OverlayType.POLYGON],
+      },
+      polygonOptions: {
+        editable: false,
+        fillColor: '#22c55e',
+        fillOpacity: 0.2,
+        strokeWeight: 2,
+        strokeColor: '#15803d',
+      },
+    });
+    dm.setMap(editMode && landBoundary.length === 0 ? map : null);
+    google.maps.event.addListener(dm, 'overlaycomplete', (e: google.maps.drawing.OverlayCompleteEvent) => {
+      if (e.type !== google.maps.drawing.OverlayType.POLYGON) return;
+      const polygon = e.overlay as google.maps.Polygon;
+      const path = polygon.getPath();
+      const coords: Coordinate[] = [];
+      for (let i = 0; i < path.getLength(); i++) {
+        const p = path.getAt(i);
+        coords.push({ lat: p.lat(), lng: p.lng() });
+      }
+      polygon.setMap(null);
+      if (coords.length > 1 && coords[0].lat === coords[coords.length - 1].lat && coords[0].lng === coords[coords.length - 1].lng) {
+        coords.pop();
+      }
+      onBoundaryComplete(coords);
+    });
+    drawingManagerRef.current = dm;
+  };
 
-    if (!token) {
-      console.error('❌ Mapbox token is missing! Check your .env file and restart the server.');
+  const pathToCoords = (path: google.maps.MVCArray<google.maps.LatLng>): Coordinate[] => {
+    const coords: Coordinate[] = [];
+    for (let i = 0; i < path.getLength(); i++) {
+      const p = path.getAt(i);
+      coords.push({ lat: p.lat(), lng: p.lng() });
+    }
+    return coords;
+  };
+
+  useEffect(() => {
+    if (!isLoaded || loadError || !mapRef.current) return;
+
+    const map = mapRef.current;
+
+    if (boundaryPolygonRef.current) {
+      boundaryPolygonRef.current.setMap(null);
+      google.maps.event.clearInstanceListeners(boundaryPolygonRef.current);
+      boundaryPolygonRef.current = null;
+    }
+
+    if (landBoundary.length === 0) {
+      if (drawingManagerRef.current) {
+        drawingManagerRef.current.setDrawingMode(google.maps.drawing.OverlayType.POLYGON);
+        drawingManagerRef.current.setMap(editMode ? map : null);
+      }
       return;
     }
 
-    map.current = new mapboxgl.Map({
-      container: mapContainer.current,
-      style: 'mapbox://styles/mapbox/satellite-streets-v12',
-      center: [77.5946, 12.9716], // Default to Bangalore, India
-      zoom: 15,
+    const closed = [...landBoundary];
+    if (closed.length > 1 && (closed[0].lat !== closed[closed.length - 1].lat || closed[0].lng !== closed[closed.length - 1].lng)) {
+      closed.push(closed[0]);
+    }
+    const path = closed.map(c => new google.maps.LatLng(c.lat, c.lng));
+
+    const poly = new google.maps.Polygon({
+      paths: path,
+      editable: editMode,
+      draggable: false,
+      fillColor: '#22c55e',
+      fillOpacity: 0.2,
+      strokeWeight: 2,
+      strokeColor: '#15803d',
+    });
+    poly.setMap(map);
+    boundaryPolygonRef.current = poly;
+
+    poly.getPath().addListener('set_at', () => {
+      const coords = pathToCoords(poly.getPath());
+      if (coords.length > 1) onBoundaryComplete(coords.slice(0, -1));
+    });
+    poly.getPath().addListener('insert_at', () => {
+      const coords = pathToCoords(poly.getPath());
+      if (coords.length > 1) onBoundaryComplete(coords.slice(0, -1));
     });
 
-    // Add navigation controls
-    map.current.addControl(new mapboxgl.NavigationControl(), 'top-right');
+    if (drawingManagerRef.current) {
+      drawingManagerRef.current.setMap(null);
+      drawingManagerRef.current.setDrawingMode(google.maps.drawing.OverlayType.POLYGON);
+    }
 
-    // Add drawing controls
-    draw.current = new MapboxDraw({
-      displayControlsDefault: false,
-      controls: {
-        polygon: true,
-        trash: true,
-      },
-      defaultMode: 'draw_polygon',
-    });
-
-    map.current.addControl(draw.current);
-
-    // Handle polygon creation
-    map.current.on('draw.create', updateArea);
-    map.current.on('draw.update', updateArea);
-    map.current.on('draw.delete', () => {
-      // Clear boundary when deleted
-    });
-
-    map.current.on('load', () => {
-      console.log('Map load event fired');
-      setMapLoaded(true);
-    });
-
-    // Use styledata event which fires when style is loaded/changed
-    map.current.on('styledata', () => {
-      if (map.current?.isStyleLoaded()) {
-        console.log('Style is now loaded (styledata event)');
-        setStyleReady(true);
-      }
-    });
-
-    function updateArea(e: any) {
-      // Only process if in edit mode
-      if (!editMode) return;
-
-      const data = draw.current?.getAll();
-      if (data && data.features.length > 0) {
-        const polygon = data.features[0];
-        const coords = (polygon.geometry as any).coordinates[0].map((c: number[]) => ({
-          lng: c[0],
-          lat: c[1],
-        }));
-        // Remove the last coordinate if it's the same as the first (closing the polygon)
-        if (coords.length > 1 &&
-            coords[0].lat === coords[coords.length - 1].lat &&
-            coords[0].lng === coords[coords.length - 1].lng) {
-          coords.pop();
-        }
-        onBoundaryComplete(coords);
-      }
+    if (!hasInitiallyFitBounds.current) {
+      const bounds = new google.maps.LatLngBounds();
+      landBoundary.forEach(c => bounds.extend(new google.maps.LatLng(c.lat, c.lng)));
+      map.fitBounds(bounds, 50);
+      hasInitiallyFitBounds.current = true;
     }
 
     return () => {
-      map.current?.remove();
-      map.current = null;
+      poly.setMap(null);
+      google.maps.event.clearInstanceListeners(poly);
     };
-  }, []);
+  }, [isLoaded, landBoundary, editMode, onBoundaryComplete]);
 
-  // Load existing land boundary into draw control
   useEffect(() => {
-    if (!draw.current || !map.current || !mapLoaded) return;
-    if (landBoundary.length === 0) return;
-
-    console.log('Loading existing land boundary into draw control:', landBoundary);
-
-    // Clear existing drawings
-    draw.current.deleteAll();
-
-    // Add the land boundary as a polygon
-    const feature = {
-      type: 'Feature' as const,
-      geometry: {
-        type: 'Polygon' as const,
-        coordinates: [[
-          ...landBoundary.map(c => [c.lng, c.lat]),
-          [landBoundary[0].lng, landBoundary[0].lat] // Close the polygon
-        ]]
-      },
-      properties: {}
-    };
-
-    draw.current.add(feature);
-
-    // Fit map to show the boundary
-    if (!hasInitiallyFitBounds.current) {
-      const lngs = landBoundary.map(c => c.lng);
-      const lats = landBoundary.map(c => c.lat);
-      map.current.fitBounds([
-        [Math.min(...lngs), Math.min(...lats)],
-        [Math.max(...lngs), Math.max(...lats)]
-      ], { padding: 50 });
-      hasInitiallyFitBounds.current = true;
-    }
-  }, [landBoundary, mapLoaded]);
-
-  // Toggle drawing mode based on editMode
-  useEffect(() => {
-    if (!draw.current || !map.current) return;
-
-    if (editMode) {
-      // If there's already a boundary loaded, enable editing of existing polygon
-      if (landBoundary.length > 0) {
-        const features = draw.current.getAll();
-        if (features.features.length > 0 && features.features[0].id) {
-          try {
-            // Switch to direct_select mode to edit the existing polygon
-            (draw.current.changeMode as any)('direct_select', { featureId: features.features[0].id });
-          } catch (error) {
-            console.warn('Could not enter direct_select mode, falling back to simple_select:', error);
-            // Fall back to simple_select if direct_select fails
-            draw.current.changeMode('simple_select');
-          }
-        } else {
-          // No polygon loaded yet, allow drawing new one
-          draw.current.changeMode('draw_polygon');
-        }
-      } else {
-        // No boundary, allow drawing new one
-        draw.current.changeMode('draw_polygon');
-      }
+    if (!mapRef.current || !drawingManagerRef.current) return;
+    if (editMode && landBoundary.length === 0) {
+      drawingManagerRef.current.setMap(mapRef.current);
+      drawingManagerRef.current.setDrawingMode(google.maps.drawing.OverlayType.POLYGON);
     } else {
-      // Disable drawing - switch to simple_select mode (pan/zoom only)
-      draw.current.changeMode('simple_select');
+      drawingManagerRef.current.setMap(null);
+    }
+    if (boundaryPolygonRef.current) {
+      boundaryPolygonRef.current.setEditable(editMode);
     }
   }, [editMode, landBoundary.length]);
 
-  // Fetch autocomplete suggestions with debounce
   const fetchSuggestions = async (query: string) => {
-    if (!query.trim() || query.length < 3) {
+    if (!query.trim() || query.length < 3 || !mapRef.current || !isLoaded) {
       setSuggestions([]);
       setShowSuggestions(false);
       return;
     }
-
     try {
-      const mapboxToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN || '';
-      const response = await fetch(
-        `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?access_token=${mapboxToken}&limit=5&autocomplete=true`
-      );
-      const data = await response.json();
-
-      if (data.features && data.features.length > 0) {
-        setSuggestions(data.features);
-        setShowSuggestions(true);
-      } else {
-        setSuggestions([]);
-        setShowSuggestions(false);
+      if (!autocompleteServiceRef.current) {
+        autocompleteServiceRef.current = new google.maps.places.AutocompleteService();
       }
-    } catch (error) {
-      console.error('Autocomplete error:', error);
+      const service = autocompleteServiceRef.current;
+      const sessionToken = new google.maps.places.AutocompleteSessionToken();
+      
+      service.getPlacePredictions(
+        { input: query, sessionToken, types: ['establishment', 'geocode'] },
+        async (predictions, status) => {
+          if (status !== google.maps.places.PlacesServiceStatus.OK || !predictions) {
+            setSuggestions([]);
+            setShowSuggestions(false);
+            return;
+          }
+          
+          const list: Suggestion[] = [];
+          const placePromises = predictions.slice(0, 5).map(async (p) => {
+            if (!p.place_id) return null;
+            try {
+              const { Place } = await google.maps.importLibrary('places') as google.maps.PlacesLibrary;
+              const place = new Place({ id: p.place_id, requestedLanguage: 'en' });
+              await place.fetchFields({ fields: ['location', 'displayName', 'formattedAddress'] });
+              
+              const location = place.location;
+              if (location) {
+                return {
+                  place_id: p.place_id,
+                  description: p.description || '',
+                  lat: location.lat(),
+                  lng: location.lng(),
+                };
+              }
+            } catch (err) {
+              console.error('Error fetching place details:', err);
+            }
+            return null;
+          });
+          
+          const results = await Promise.all(placePromises);
+          const validResults = results.filter((r): r is Suggestion => r !== null);
+          setSuggestions(validResults);
+          setShowSuggestions(validResults.length > 0);
+        }
+      );
+    } catch (err) {
+      console.error('Autocomplete error:', err);
       setSuggestions([]);
+      setShowSuggestions(false);
     }
   };
 
-  // Handle search input changes with debouncing
   const handleSearchInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
     setSearchQuery(value);
-
-    // Clear existing timeout
-    if (searchTimeoutRef.current) {
-      clearTimeout(searchTimeoutRef.current);
-    }
-
-    // Set new timeout for autocomplete
-    searchTimeoutRef.current = setTimeout(() => {
-      fetchSuggestions(value);
-    }, 300); // 300ms debounce
+    if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+    searchTimeoutRef.current = setTimeout(() => fetchSuggestions(value), 300);
   };
 
-  // Handle location search using Mapbox Geocoding API (100% FREE - 100k requests/month)
+  const flyTo = (lat: number, lng: number) => {
+    if (!mapRef.current) return;
+    mapRef.current.panTo({ lat, lng });
+    mapRef.current.setZoom(15);
+  };
+
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!searchQuery.trim() || !map.current) return;
-
+    if (!searchQuery.trim()) return;
     setSearchLoading(true);
     setShowSuggestions(false);
-
     try {
-      const mapboxToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN || '';
-      const response = await fetch(
-        `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(searchQuery)}.json?access_token=${mapboxToken}&limit=1`
-      );
-      const data = await response.json();
-
-      if (data.features && data.features.length > 0) {
-        const [lng, lat] = data.features[0].center;
-        map.current.flyTo({
-          center: [lng, lat],
-          zoom: 15,
-          duration: 2000,
-        });
+      const geocoder = new google.maps.Geocoder();
+      const res = await geocoder.geocode({ address: searchQuery });
+      if (res.results && res.results[0]?.geometry?.location) {
+        const loc = res.results[0].geometry.location;
+        flyTo(loc.lat(), loc.lng());
       } else {
-        alert('Location not found. Please try a different address.');
+        alert('Location not found. Try a different address.');
       }
-    } catch (error) {
-      console.error('Search error:', error);
+    } catch (err) {
+      console.error('Search error:', err);
       alert('Failed to search location. Please try again.');
     } finally {
       setSearchLoading(false);
     }
   };
 
-  // Handle suggestion selection
-  const handleSuggestionClick = (suggestion: { place_name: string; center: [number, number] }) => {
-    if (!map.current) return;
-
-    const [lng, lat] = suggestion.center;
-    setSearchQuery(suggestion.place_name);
+  const handleSuggestionClick = (s: Suggestion) => {
+    setSearchQuery(s.description);
     setShowSuggestions(false);
     setSuggestions([]);
-
-    map.current.flyTo({
-      center: [lng, lat],
-      zoom: 15,
-      duration: 2000,
-    });
+    flyTo(s.lat, s.lng);
   };
 
-  // Close suggestions when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       const target = event.target as HTMLElement;
-      if (!target.closest('.search-container')) {
-        setShowSuggestions(false);
-      }
+      if (!target.closest('.search-container')) setShowSuggestions(false);
     };
-
     document.addEventListener('mousedown', handleClickOutside);
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-    };
+    return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Update polyhouses visualization
   useEffect(() => {
-    console.log('MapComponent polyhouses effect triggered');
-    console.log('  - map.current:', !!map.current);
-    console.log('  - mapLoaded:', mapLoaded);
-    console.log('  - styleReady:', styleReady);
-    console.log('  - polyhouses:', polyhouses);
-    console.log('  - polyhouses type:', typeof polyhouses);
-    console.log('  - polyhouses is array:', Array.isArray(polyhouses));
-    console.log('  - polyhouses length:', polyhouses?.length);
+    if (!mapRef.current || !mapLoaded || !isLoaded) return;
 
-    if (!map.current || !mapLoaded || !styleReady) {
-      console.log('Map or style not ready yet (mapLoaded:', mapLoaded, ', styleReady:', styleReady, ')');
-      return;
-    }
+    const map = mapRef.current;
+    dataLayersRef.current.forEach(dl => dl.setMap(null));
+    dataLayersRef.current = [];
+    markersRef.current.forEach(m => {
+      if ('setMap' in m) {
+        m.setMap(null);
+      } else {
+        m.map = null;
+      }
+    });
+    markersRef.current = [];
+    if (infoWindowRef.current) infoWindowRef.current.close();
 
-    const mapInstance = map.current;
-    console.log('Style is loaded, proceeding with polyhouse rendering...');
-
-    // CRITICAL FIX: Handle null/undefined polyhouses
-    const validPolyhouses = Array.isArray(polyhouses) ? polyhouses : [];
-    if (validPolyhouses.length === 0) {
-      console.log('No polyhouses to render (empty array or invalid data)');
-      // Still need to clean up existing layers if they exist
-    }
-
-    // Debug log to check polyhouse structure
-    console.log('Rendering polyhouses:', validPolyhouses.length);
-    if (validPolyhouses.length > 0) {
-      console.log('Sample polyhouse structure:', {
-        id: validPolyhouses[0].id,
-        blocksCount: validPolyhouses[0].blocks?.length,
-        hasCorners: validPolyhouses[0].blocks?.[0]?.corners?.length > 0,
-        sampleBlock: validPolyhouses[0].blocks?.[0],
-        sampleCorner: validPolyhouses[0].blocks?.[0]?.corners?.[0],
+    const boundaryBufferCoords = landBoundary.map(c => new google.maps.LatLng(c.lat, c.lng));
+    if (landBoundary.length > 0 && boundaryBufferCoords.length > 0) {
+      const boundaryData = new google.maps.Data();
+      boundaryData.addGeoJson({
+        type: 'Feature',
+        properties: {},
+        geometry: {
+          type: 'Polygon',
+          coordinates: [[...landBoundary.map(c => [c.lng, c.lat]), [landBoundary[0].lng, landBoundary[0].lat]]],
+        },
       });
+      boundaryData.setStyle({ strokeColor: '#ea580c', strokeWeight: 8, strokeOpacity: 0.6, fillOpacity: 0 });
+      boundaryData.setMap(map);
+      dataLayersRef.current.push(boundaryData);
     }
 
-    // Remove existing layers and sources
-    const layersToRemove = [
-      'boundary-buffer-fill',
-      'boundary-buffer-outline',
-      'restricted-zones-fill',
-      'restricted-zones-outline',
-      'gutters-fill',
-      'gutters-outline',
-      'blocks-fill',
-      'blocks-outline',
-    ];
-
-    const sourcesToRemove = [
-      'boundary-buffer',
-      'restricted-zones',
-      'gutters',
-      'blocks',
-    ];
-
-    layersToRemove.forEach(layerId => {
-      if (mapInstance.getLayer(layerId)) {
-        mapInstance.removeLayer(layerId);
-      }
-    });
-
-    sourcesToRemove.forEach(sourceId => {
-      if (mapInstance.getSource(sourceId)) {
-        mapInstance.removeSource(sourceId);
-      }
-    });
-
-    // Add land boundary outline to show the restricted buffer zone at edges
-    const boundaryBufferCoords = landBoundary.map(c => [c.lng, c.lat]);
-    if (boundaryBufferCoords.length > 0 &&
-        (boundaryBufferCoords[0][0] !== boundaryBufferCoords[boundaryBufferCoords.length - 1][0] ||
-         boundaryBufferCoords[0][1] !== boundaryBufferCoords[boundaryBufferCoords.length - 1][1])) {
-      boundaryBufferCoords.push([...boundaryBufferCoords[0]]);
-    }
-
-    mapInstance.addSource('boundary-buffer', {
-      type: 'geojson',
-      data: {
-        type: 'FeatureCollection',
-        features: [{
-          type: 'Feature',
-          properties: {},
-          geometry: {
-            type: 'Polygon',
-            coordinates: [boundaryBufferCoords],
-          },
-        }],
-      },
-    });
-
-    // Add boundary outline (thick orange line to show 1-2m buffer zone at edges)
-    mapInstance.addLayer({
-      id: 'boundary-buffer-outline',
-      type: 'line',
-      source: 'boundary-buffer',
-      paint: {
-        'line-color': '#ea580c', // Strong orange for boundary
-        'line-width': 8, // Thick line to represent the buffer zone
-        'line-opacity': 0.6,
-      },
-    });
-
-    // Add restricted zones from terrain analysis (water, steep slopes, forests)
-    console.log('MapComponent: terrainAnalysis data:', terrainAnalysis);
-    if (terrainAnalysis && terrainAnalysis.restrictedZones && terrainAnalysis.restrictedZones.length > 0) {
-      console.log(`MapComponent: Rendering ${terrainAnalysis.restrictedZones.length} restricted zones`);
-      const restrictedFeatures = terrainAnalysis.restrictedZones
-        .filter((zone: any) => zone.coordinates && Array.isArray(zone.coordinates) && zone.coordinates.length >= 3)
-        .map((zone: any, index: number) => {
-          console.log(`   Zone ${index + 1}: ${zone.type}, ${zone.coordinates.length} coords`);
+    const restricted = terrainAnalysis?.restrictedZones || [];
+    if (restricted.length > 0) {
+      const restrictedData = new google.maps.Data();
+      const restrictedFeatures = restricted
+        .filter((zone: { coordinates: Array<{ lng: number; lat: number }> }) => zone.coordinates && zone.coordinates.length >= 3)
+        .map((zone: { coordinates: Array<{ lng: number; lat: number }>; severity?: string }) => {
+          const ring = [...zone.coordinates.map((c: { lng: number; lat: number }) => [c.lng, c.lat]), [zone.coordinates[0].lng, zone.coordinates[0].lat]];
           return {
             type: 'Feature' as const,
-            properties: {
-              type: zone.type,
-              reason: zone.reason,
-              severity: zone.severity,
-            },
-            geometry: {
-              type: 'Polygon' as const,
-              coordinates: [
-                zone.coordinates.map((c: any) => [c.lng, c.lat]).concat([[zone.coordinates[0].lng, zone.coordinates[0].lat]])
-              ],
-            },
+            properties: { severity: zone.severity || '' },
+            geometry: { type: 'Polygon' as const, coordinates: [ring] },
           };
         });
-
-      mapInstance.addSource('restricted-zones', {
-        type: 'geojson',
-        data: {
-          type: 'FeatureCollection',
-          features: restrictedFeatures,
-        },
+      restrictedData.addGeoJson({ type: 'FeatureCollection', features: restrictedFeatures });
+      restrictedData.setStyle((feature) => {
+        const severity = feature.getProperty('severity') || '';
+        let fillColor = '#ef4444';
+        if (severity === 'prohibited') fillColor = '#dc2626';
+        else if (severity === 'challenging') fillColor = '#f97316';
+        return {
+          fillColor,
+          fillOpacity: 0.6,
+          strokeColor: '#991b1b',
+          strokeWeight: 3,
+          strokeOpacity: 1,
+        };
       });
-
-      // Add fill layer - RED for all restricted zones to clearly show no-build areas
-      mapInstance.addLayer({
-        id: 'restricted-zones-fill',
-        type: 'fill',
-        source: 'restricted-zones',
-        paint: {
-          'fill-color': [
-            'match',
-            ['get', 'severity'],
-            'prohibited', '#dc2626',      // Dark red for prohibited areas
-            'challenging', '#f97316',     // Orange for challenging areas
-            '#ef4444'                     // Red for other restrictions
-          ],
-          'fill-opacity': 0.6, // More visible
-        },
-      });
-
-      // Add outline with diagonal hatch pattern effect
-      mapInstance.addLayer({
-        id: 'restricted-zones-outline',
-        type: 'line',
-        source: 'restricted-zones',
-        paint: {
-          'line-color': '#991b1b', // Dark red outline for strong warning
-          'line-width': 3,
-          'line-dasharray': [5, 3], // Dashed to show it's restricted
-        },
-      });
+      restrictedData.setMap(map);
+      dataLayersRef.current.push(restrictedData);
     }
 
-    // Spacing is maintained automatically by the optimizer
-    // We don't need to visualize it separately as it just adds visual clutter
-
-    // Create GeoJSON features for gutters (outer bounds - these include the 2m gutter)
-    const gutterFeatures = validPolyhouses
-      .filter(polyhouse => {
-        if (!polyhouse.bounds || polyhouse.bounds.length < 3) {
-          console.warn(`Polyhouse ${polyhouse.id} has invalid bounds:`, polyhouse.bounds?.length);
-          return false;
-        }
-        return true;
-      })
+    const validPolyhouses = Array.isArray(polyhouses) ? polyhouses : [];
+    const gutterFeatures: GeoJSON.Feature<GeoJSON.Polygon>[] = validPolyhouses
+      .filter(p => p.bounds && p.bounds.length >= 3)
       .map((polyhouse, index) => {
-        // Bounds are stored as Point[] with {x: lng, y: lat}
-        const boundsCoords = polyhouse.bounds.map(p => [p.x, p.y]);
-
-        // Validate coordinates are reasonable geographic values
-        const isValid = boundsCoords.every(coord =>
-          coord[0] >= -180 && coord[0] <= 180 && // longitude
-          coord[1] >= -90 && coord[1] <= 90       // latitude
-        );
-
-        if (!isValid) {
-          console.warn(`Polyhouse ${polyhouse.id} has invalid bound coordinates:`, boundsCoords[0]);
-        }
-
+        const ring = [...polyhouse.bounds!.map(p => [p.x, p.y]), [polyhouse.bounds![0].x, polyhouse.bounds![0].y]];
         return {
           type: 'Feature' as const,
-          properties: {
-            id: `${polyhouse.id}-gutter`,
-            index,
-            label: polyhouse.label || `P${index + 1}`,
-            area: polyhouse.area,
-            dimensions: polyhouse.dimensions,
-            blocksCount: polyhouse.blocks?.length || 0,
-          },
-          geometry: {
-            type: 'Polygon' as const,
-            coordinates: [
-              boundsCoords.concat([[polyhouse.bounds[0].x, polyhouse.bounds[0].y]])
-            ],
-          },
+          properties: { id: `${polyhouse.id}-gutter`, index, label: polyhouse.label || `P${index + 1}`, area: polyhouse.area, dimensions: polyhouse.dimensions, blocksCount: polyhouse.blocks?.length || 0 },
+          geometry: { type: 'Polygon' as const, coordinates: [ring] },
         };
       });
 
-    // Add gutters source (shows the gutter area around polyhouses)
-    mapInstance.addSource('gutters', {
-      type: 'geojson',
-      data: {
-        type: 'FeatureCollection',
-        features: gutterFeatures,
-      },
-    });
+    if (gutterFeatures.length > 0) {
+      const guttersData = new google.maps.Data();
+      guttersData.addGeoJson({ type: 'FeatureCollection', features: gutterFeatures });
+      guttersData.setStyle({ fillColor: '#86efac', fillOpacity: 0.4, strokeColor: '#15803d', strokeWeight: 3 });
+      guttersData.setMap(map);
+      dataLayersRef.current.push(guttersData);
 
-    // Add polyhouse structure fill layer (light green to show the entire polyhouse)
-    mapInstance.addLayer({
-      id: 'gutters-fill',
-      type: 'fill',
-      source: 'gutters',
-      paint: {
-        'fill-color': '#86efac', // Light green for entire polyhouse structure (including gutters)
-        'fill-opacity': 0.4, // More transparent so blocks stand out
-      },
-    });
-
-    // Add polyhouse structure outline layer (dark green border)
-    mapInstance.addLayer({
-      id: 'gutters-outline',
-      type: 'line',
-      source: 'gutters',
-      paint: {
-        'line-color': '#15803d', // Dark green for polyhouse boundaries
-        'line-width': 3,
-      },
-    });
-
-    // Don't render the inner "polyhouses" layer - we'll show blocks directly instead
-    // This was covering the blocks with a gray overlay
-
-    // Create GeoJSON features for individual blocks within polyhouses
-    const blockFeatures: any[] = [];
-    validPolyhouses.forEach((polyhouse, polyhouseIndex) => {
-      if (polyhouse.blocks && polyhouse.blocks.length > 0) {
-        polyhouse.blocks.forEach((block, blockIndex) => {
-          if (block.corners && block.corners.length >= 3) {
-            // Corners are stored as Point[] with {x: lng, y: lat}
-            const blockCoords = block.corners.map(c => [c.x, c.y]);
-
-            // Validate coordinates are reasonable geographic values
-            const isValid = blockCoords.every(coord =>
-              coord[0] >= -180 && coord[0] <= 180 && // longitude
-              coord[1] >= -90 && coord[1] <= 90       // latitude
-            );
-
-            if (!isValid) {
-              console.warn(`Block ${polyhouseIndex}-${blockIndex} has invalid coordinates:`, blockCoords[0]);
-              return;
-            }
-
-            // Close the polygon if not already closed
-            if (blockCoords[0][0] !== blockCoords[blockCoords.length - 1][0] ||
-                blockCoords[0][1] !== blockCoords[blockCoords.length - 1][1]) {
-              blockCoords.push([...blockCoords[0]]);
-            }
-
-            blockFeatures.push({
-              type: 'Feature' as const,
-              properties: {
-                polyhouseId: polyhouse.id,
-                polyhouseIndex,
-                blockIndex,
-                blockArea: block.width * block.height,
-              },
-              geometry: {
-                type: 'Polygon' as const,
-                coordinates: [blockCoords],
-              },
-            });
-          } else {
-            console.warn(`Block ${polyhouseIndex}-${blockIndex} missing or invalid corners:`, block.corners?.length);
-          }
-        });
-      }
-    });
-
-    console.log(`Rendering ${blockFeatures.length} blocks across ${validPolyhouses.length} polyhouses`);
-    console.log(`Rendering ${gutterFeatures.length} polyhouse gutters`);
-
-    // Add blocks source if we have blocks
-    if (blockFeatures.length > 0) {
-      mapInstance.addSource('blocks', {
-        type: 'geojson',
-        data: {
-          type: 'FeatureCollection',
-          features: blockFeatures,
-        },
+      const infoWindow = new google.maps.InfoWindow({
+        pixelOffset: new google.maps.Size(0, -10),
       });
-
-      // Add blocks fill layer (darker green for individual blocks)
-      mapInstance.addLayer({
-        id: 'blocks-fill',
-        type: 'fill',
-        source: 'blocks',
-        paint: {
-          'fill-color': '#059669', // Emerald green for blocks
-          'fill-opacity': 0.9, // More opaque
-        },
-      });
-
-      // Add blocks outline layer (bright white borders to separate blocks)
-      mapInstance.addLayer({
-        id: 'blocks-outline',
-        type: 'line',
-        source: 'blocks',
-        paint: {
-          'line-color': '#ffffff', // Bright white borders between blocks
-          'line-width': 3, // Thicker borders
-          'line-opacity': 1, // Fully opaque
-        },
-      });
-    } else {
-      console.warn('No blocks found to render - blocks may not have corner data');
-    }
-
-    // Add hover popup for polyhouse info
-    const popup = new mapboxgl.Popup({
-      closeButton: false,
-      closeOnClick: false,
-      className: 'polyhouse-popup',
-    });
-
-    mapInstance.on('mousemove', 'gutters-fill', (e) => {
-      if (e.features && e.features.length > 0) {
-        mapInstance.getCanvas().style.cursor = 'pointer';
-
-        const feature = e.features[0];
-        const props = feature.properties;
-        const area = props?.area || 0;
-        const dimensions = props?.dimensions ? JSON.parse(props.dimensions) : null;
-        const label = props?.label || `P${(props?.index || 0) + 1}`;
-
-        const blocksCount = props?.blocksCount || 0;
+      infoWindowRef.current = infoWindow;
+      guttersData.addListener('mouseover', (e: google.maps.Data.MouseEvent) => {
+        const props = e.feature.getProperty;
+        const area = e.feature.getProperty('area') || 0;
+        const dimensions = e.feature.getProperty('dimensions');
+        const dims = dimensions ? (typeof dimensions === 'string' ? JSON.parse(dimensions) : dimensions) : null;
+        const label = e.feature.getProperty('label') || 'P1';
+        const blocksCount = e.feature.getProperty('blocksCount') || 0;
         let html = `<div style="padding: 8px; font-size: 13px; background: white; color: #1f2937; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">`;
         html += `<strong style="color: #047857;">Polyhouse ${label}</strong><br/>`;
-        html += `<strong>Total Area:</strong> ${area.toFixed(0)} m²<br/>`;
-        if (dimensions) {
-          html += `<strong>Size:</strong> ${dimensions.length.toFixed(1)}m × ${dimensions.width.toFixed(1)}m<br/>`;
+        html += `<strong>Total Area:</strong> ${Number(area).toFixed(0)} m²<br/>`;
+        if (dims) {
+          html += `<strong>Size:</strong> ${dims.length?.toFixed(1) || '-'}m × ${dims.width?.toFixed(1) || '-'}m<br/>`;
         }
         html += `<strong>Blocks:</strong> ${blocksCount}<br/>`;
         html += `</div>`;
+        infoWindow.setContent(html);
+        infoWindow.setPosition(e.latLng);
+        infoWindow.open(map);
+        if (map.getDiv()) map.getDiv()!.style.cursor = 'pointer';
+      });
+      guttersData.addListener('mouseout', () => {
+        infoWindow.close();
+        if (map.getDiv()) map.getDiv()!.style.cursor = '';
+      });
+    }
 
-        popup.setLngLat(e.lngLat).setHTML(html).addTo(mapInstance);
-      }
-    });
-
-    mapInstance.on('mouseleave', 'gutters-fill', () => {
-      mapInstance.getCanvas().style.cursor = '';
-      popup.remove();
-    });
-
-    // Clear old polyhouse markers before adding new ones
-    polyhouseMarkersRef.current.forEach(marker => marker.remove());
-    polyhouseMarkersRef.current = [];
-
-    // Add labels for polyhouses
-    validPolyhouses.forEach((polyhouse, index) => {
-      // Calculate center of polyhouse
-      const center = {
-        lng: polyhouse.bounds.reduce((sum, p) => sum + p.x, 0) / polyhouse.bounds.length,
-        lat: polyhouse.bounds.reduce((sum, p) => sum + p.y, 0) / polyhouse.bounds.length,
-      };
-
-      // Add marker with polyhouse info
-      const el = document.createElement('div');
-      el.className = 'polyhouse-marker';
-      el.style.backgroundColor = '#16a34a';
-      el.style.color = 'white';
-      el.style.padding = '4px 8px';
-      el.style.borderRadius = '4px';
-      el.style.fontSize = '12px';
-      el.style.fontWeight = 'bold';
-      // Use backend label if available, otherwise fallback to P{index+1}
-      el.textContent = polyhouse.label || `P${index + 1}`;
-
-      const marker = new mapboxgl.Marker(el)
-        .setLngLat([center.lng, center.lat])
-        .addTo(mapInstance);
-
-      // Store marker reference for cleanup
-      polyhouseMarkersRef.current.push(marker);
-    });
-
-    // Fit bounds to show all polyhouses (only on first load, not on updates)
-    if (validPolyhouses.length > 0 && !hasInitiallyFitBounds.current) {
-      const bounds = new mapboxgl.LngLatBounds();
-      validPolyhouses.forEach(polyhouse => {
-        polyhouse.bounds.forEach(p => {
-          bounds.extend([p.x, p.y]);
+    const blockFeatures: GeoJSON.Feature<GeoJSON.Polygon>[] = [];
+    validPolyhouses.forEach((polyhouse, pIdx) => {
+      polyhouse.blocks?.forEach((block, bIdx) => {
+        if (!block.corners || block.corners.length < 3) return;
+        const ring = [...block.corners.map(c => [c.x, c.y])];
+        if (ring[0][0] !== ring[ring.length - 1][0] || ring[0][1] !== ring[ring.length - 1][1]) ring.push([...ring[0]]);
+        blockFeatures.push({
+          type: 'Feature',
+          properties: { polyhouseIndex: pIdx, blockIndex: bIdx },
+          geometry: { type: 'Polygon', coordinates: [ring] },
         });
       });
-      mapInstance.fitBounds(bounds, { padding: 50 });
+    });
+    if (blockFeatures.length > 0) {
+      const blocksData = new google.maps.Data();
+      blocksData.addGeoJson({ type: 'FeatureCollection', features: blockFeatures });
+      blocksData.setStyle({ fillColor: '#059669', fillOpacity: 0.9, strokeColor: '#ffffff', strokeWeight: 3 });
+      blocksData.setMap(map);
+      dataLayersRef.current.push(blocksData);
+    }
+
+    validPolyhouses.forEach((polyhouse, index) => {
+      const center = {
+        lng: polyhouse.bounds!.reduce((s, p) => s + p.x, 0) / polyhouse.bounds!.length,
+        lat: polyhouse.bounds!.reduce((s, p) => s + p.y, 0) / polyhouse.bounds!.length,
+      };
+      const label = polyhouse.label || `P${index + 1}`;
+      const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="24" viewBox="0 0 48 24"><rect width="48" height="24" rx="4" fill="#16a34a" stroke="#15803d" stroke-width="1"/><text x="24" y="16" text-anchor="middle" fill="white" font-size="12" font-weight="bold">${esc(label)}</text></svg>`;
+      const iconUrl = 'data:image/svg+xml,' + encodeURIComponent(svg);
+      const marker = new google.maps.Marker({
+        position: center,
+        map,
+        icon: { url: iconUrl, scaledSize: new google.maps.Size(48, 24), anchor: new google.maps.Point(24, 12) },
+        zIndex: 100,
+      });
+      markersRef.current.push(marker);
+    });
+
+    if (validPolyhouses.length > 0 && !hasInitiallyFitBounds.current) {
+      const bounds = new google.maps.LatLngBounds();
+      validPolyhouses.forEach(p => p.bounds?.forEach(b => bounds.extend(new google.maps.LatLng(b.y, b.x))));
+      map.fitBounds(bounds, 50);
       hasInitiallyFitBounds.current = true;
     }
-  }, [polyhouses, mapLoaded, styleReady]);
+  }, [polyhouses, mapLoaded, isLoaded, landBoundary, terrainAnalysis]);
+
+  const onMapLoad = (map: google.maps.Map) => {
+    mapRef.current = map;
+    setMapLoaded(true);
+    initDrawingManager(map);
+  };
+
+  const onMapUnmount = () => {
+    drawingManagerRef.current?.setMap(null);
+    drawingManagerRef.current = null;
+    boundaryPolygonRef.current?.setMap(null);
+    boundaryPolygonRef.current = null;
+    dataLayersRef.current.forEach(d => d.setMap(null));
+    dataLayersRef.current = [];
+    markersRef.current.forEach(m => m.setMap(null));
+    markersRef.current = [];
+    infoWindowRef.current?.close();
+    infoWindowRef.current = null;
+    mapRef.current = null;
+    setMapLoaded(false);
+  };
+
+  if (loadError) {
+    return (
+      <div className="w-full h-full flex items-center justify-center bg-gray-100 dark:bg-slate-950 text-red-600 p-4">
+        <div className="text-center">
+          <p className="font-bold mb-2">Failed to load Google Maps</p>
+          <p className="text-sm">Check that:</p>
+          <ul className="text-sm list-disc list-inside mt-2">
+            <li>NEXT_PUBLIC_GOOGLE_MAPS_API_KEY is set in .env.local</li>
+            <li>Maps JavaScript API, Places API, and Geocoding API are enabled in GCP</li>
+            <li>API key restrictions allow your domain</li>
+          </ul>
+          {!apiKey && <p className="text-xs mt-2 text-red-700">API key is missing!</p>}
+        </div>
+      </div>
+    );
+  }
+
+  if (!isLoaded) {
+    return (
+      <div className="w-full h-full flex items-center justify-center bg-gray-100 dark:bg-slate-950">
+        <div className="animate-spin h-8 w-8 border-2 border-agriplast-green-600 border-t-transparent rounded-full" />
+      </div>
+    );
+  }
 
   return (
     <div className="relative w-full h-full">
-      <div ref={mapContainer} className="w-full h-full" />
+      <GoogleMap
+        mapContainerStyle={MAP_CONTAINER_STYLE}
+        options={MAP_OPTIONS}
+        center={DEFAULT_CENTER}
+        onLoad={onMapLoad}
+        onUnmount={onMapUnmount}
+      />
 
-      {/* Location Search Bar with Autocomplete */}
       <div className="absolute top-4 left-1/2 transform -translate-x-1/2 w-full max-w-md px-4 z-10">
         <div className="search-container relative">
           <form onSubmit={handleSearch} className="relative">
@@ -723,11 +530,7 @@ export default function MapComponent({
               type="text"
               value={searchQuery}
               onChange={handleSearchInputChange}
-              onFocus={() => {
-                if (suggestions.length > 0) {
-                  setShowSuggestions(true);
-                }
-              }}
+              onFocus={() => suggestions.length > 0 && setShowSuggestions(true)}
               placeholder="Search location (e.g., Bangalore, India)"
               className="w-full px-4 py-3 pr-12 rounded-lg shadow-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-agriplast-green-600 focus:border-transparent"
               disabled={searchLoading}
@@ -745,21 +548,17 @@ export default function MapComponent({
               )}
             </button>
           </form>
-
-          {/* Autocomplete Suggestions Dropdown */}
           {showSuggestions && suggestions.length > 0 && (
             <div className="absolute w-full mt-2 bg-white rounded-lg shadow-xl border border-gray-200 max-h-80 overflow-y-auto z-20">
-              {suggestions.map((suggestion) => (
+              {suggestions.map((s) => (
                 <button
-                  key={suggestion.id}
-                  onClick={() => handleSuggestionClick(suggestion)}
+                  key={s.place_id}
+                  onClick={() => handleSuggestionClick(s)}
                   className="w-full text-left px-4 py-3 hover:bg-agriplast-green-50 transition-colors border-b border-gray-100 last:border-b-0"
                 >
                   <div className="flex items-start gap-2">
                     <Search size={16} className="text-gray-400 mt-1 flex-shrink-0" />
-                    <span className="text-gray-700 text-sm leading-relaxed">
-                      {suggestion.place_name}
-                    </span>
+                    <span className="text-gray-700 text-sm leading-relaxed">{s.description}</span>
                   </div>
                 </button>
               ))}
@@ -768,13 +567,10 @@ export default function MapComponent({
         </div>
       </div>
 
-      {/* Instructions overlay */}
       {landBoundary.length === 0 && !loading && showInstructions && (
         <div
           className={`absolute bg-white rounded-lg shadow-xl transition-all duration-300 pointer-events-auto ${
-            instructionsMinimized
-              ? 'bottom-4 right-4 w-auto'
-              : 'top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 max-w-md p-6'
+            instructionsMinimized ? 'bottom-4 right-4 w-auto' : 'top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 max-w-md p-6'
           }`}
         >
           {instructionsMinimized ? (
@@ -782,35 +578,24 @@ export default function MapComponent({
               onClick={() => setInstructionsMinimized(false)}
               className="flex items-center gap-2 px-4 py-3 text-agriplast-green-700 hover:bg-agriplast-green-50 rounded-lg transition-colors"
             >
-              <Maximize2 size={18} />
+              <Minimize2 size={18} />
               <span className="font-medium">Show Instructions</span>
             </button>
           ) : (
             <>
               <div className="flex items-start justify-between mb-3">
-                <h2 className="text-xl font-bold text-agriplast-green-700">
-                  Draw Your Land Boundary
-                </h2>
+                <h2 className="text-xl font-bold text-agriplast-green-700">Draw Your Land Boundary</h2>
                 <div className="flex gap-1 ml-2">
-                  <button
-                    onClick={() => setInstructionsMinimized(true)}
-                    className="p-1 hover:bg-gray-100 rounded transition-colors"
-                    title="Minimize"
-                  >
+                  <button onClick={() => setInstructionsMinimized(true)} className="p-1 hover:bg-gray-100 rounded transition-colors" title="Minimize">
                     <Minimize2 size={18} className="text-gray-600" />
                   </button>
-                  <button
-                    onClick={() => setShowInstructions(false)}
-                    className="p-1 hover:bg-gray-100 rounded transition-colors"
-                    title="Close"
-                  >
+                  <button onClick={() => setShowInstructions(false)} className="p-1 hover:bg-gray-100 rounded transition-colors" title="Close">
                     <X size={18} className="text-gray-600" />
                   </button>
                 </div>
               </div>
               <p className="text-gray-600 mb-4">
-                Use the polygon tool on the left to draw the boundary of your agricultural land.
-                Click to add points, and double-click to complete the polygon.
+                Use the polygon tool on the right to draw the boundary of your agricultural land. Click to add points, and double-click to complete the polygon.
               </p>
               <div className="bg-agriplast-green-50 p-3 rounded">
                 <p className="text-sm text-agriplast-green-800">

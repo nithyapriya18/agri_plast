@@ -33,7 +33,7 @@ export class BedrockService {
         '[Bedrock] AWS_ACCESS_KEY_ID or AWS_SECRET_ACCESS_KEY missing; chat will fail unless default credential chain is used.'
       );
     }
-    this.client = new BedrockRuntimeClient(clientConfig as Parameters<typeof BedrockRuntimeClient>[0]);
+    this.client = new BedrockRuntimeClient(clientConfig as never);
     this.modelId = process.env.BEDROCK_MODEL_ID || 'global.anthropic.claude-haiku-4-5-20251001-v1:0';
     console.log(`Bedrock initialized with model: ${this.modelId} in region: ${region}`);
   }
