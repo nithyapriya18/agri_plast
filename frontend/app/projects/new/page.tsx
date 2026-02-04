@@ -53,6 +53,7 @@ export default function NewProjectPage() {
   const [planningResultId, setPlanningResultId] = useState<string | null>(null);
   const [projectId, setProjectId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [savingProject, setSavingProject] = useState(false);
   const [conversationHistory, setConversationHistory] = useState<ConversationMessage[]>([]);
   const [showChat, setShowChat] = useState(false);
   const [showQuotation, setShowQuotation] = useState(false);
@@ -442,8 +443,8 @@ export default function NewProjectPage() {
   };
 
   const handleSaveProject = async () => {
-    if (!planningResult || !user) return;
-
+    if (!planningResult || !user || savingProject) return;
+    setSavingProject(true);
     const payload = {
       user_id: user.id,
       name: projectDetails.name,
@@ -475,6 +476,8 @@ export default function NewProjectPage() {
     } catch (error) {
       console.error('Error saving project:', error);
       alert('Failed to save project. Please try again.');
+    } finally {
+      setSavingProject(false);
     }
   };
 
@@ -767,10 +770,17 @@ export default function NewProjectPage() {
             {planningResult && !projectId && (
               <button
                 onClick={handleSaveProject}
-                disabled={loading}
-                className="bg-white text-agriplast-green-700 px-4 py-2 rounded-lg hover:bg-gray-100 transition-colors font-medium disabled:opacity-50"
+                disabled={loading || savingProject}
+                className="bg-white text-agriplast-green-700 px-4 py-2 rounded-lg hover:bg-gray-100 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 min-w-[7rem] justify-center"
               >
-                Save Project
+                {savingProject ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  'Save Project'
+                )}
               </button>
             )}
             {!planningResult && (

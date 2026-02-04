@@ -19,18 +19,23 @@ export class BedrockService {
   private modelId: string;
 
   constructor() {
-    const clientConfig: Record<string, unknown> = {
-      region: process.env.AWS_REGION || 'us-east-2',
-    };
-    if (process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY) {
-      (clientConfig as any).credentials = {
-        accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+    const region = process.env.AWS_REGION || 'us-east-2';
+    const clientConfig: Record<string, unknown> = { region };
+    const accessKey = process.env.AWS_ACCESS_KEY_ID;
+    const secretKey = process.env.AWS_SECRET_ACCESS_KEY;
+    if (accessKey && secretKey) {
+      (clientConfig as Record<string, unknown>).credentials = {
+        accessKeyId: accessKey,
+        secretAccessKey: secretKey,
       };
+    } else {
+      console.warn(
+        '[Bedrock] AWS_ACCESS_KEY_ID or AWS_SECRET_ACCESS_KEY missing; chat will fail unless default credential chain is used.'
+      );
     }
-    this.client = new BedrockRuntimeClient(clientConfig as any);
+    this.client = new BedrockRuntimeClient(clientConfig as Parameters<typeof BedrockRuntimeClient>[0]);
     this.modelId = process.env.BEDROCK_MODEL_ID || 'global.anthropic.claude-haiku-4-5-20251001-v1:0';
-    console.log(`Bedrock initialized with model: ${this.modelId} in region: ${(clientConfig as any).region}`);
+    console.log(`Bedrock initialized with model: ${this.modelId} in region: ${region}`);
   }
 
   async handleConversation(
