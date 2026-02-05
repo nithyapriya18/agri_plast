@@ -5,15 +5,12 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { fileURLToPath } from 'url';
-import { dirname } from 'path';
 import { Coordinate } from '@shared/types';
 import { LandCoverType } from './terrainAnalysis';
 import { fromUrl, fromArrayBuffer } from 'geotiff';
 
-// Get __dirname equivalent in ES modules
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+// In CommonJS, __dirname and __filename are available globally
+// No need to import fileURLToPath or use import.meta
 
 interface CopernicusConfig {
   demEndpoint: string;
