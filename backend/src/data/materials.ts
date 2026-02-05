@@ -88,7 +88,7 @@ export const materialsCatalog: Material[] = [
     specifications: {
       width: '150mm',
       material: 'PVC',
-      uvResistant: true,
+      uvResistant: 1,
     },
   },
 

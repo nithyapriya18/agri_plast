@@ -19,6 +19,20 @@ import {
   getRegionCount,
 } from '../data/regionalRegulations';
 
+// Mapbox API types
+interface MapboxReverseGeocodeResponse {
+  features: Array<{
+    text: string;
+    place_name: string;
+    place_type: string[];
+    context?: Array<{
+      id: string;
+      text: string;
+      short_code?: string;
+    }>;
+  }>;
+}
+
 export interface RegulatoryRegion {
   id: string;
   name: string;
@@ -85,6 +99,8 @@ export interface PermitRequirement {
 
 export interface ComplianceCheckResult {
   compliant: boolean;
+  region: string;
+  country: string;
   violations: Violation[];
   warnings: Warning[];
   permits_required: PermitRequirement[];
@@ -187,6 +203,8 @@ export class RegulatoryComplianceService {
 
     return {
       compliant,
+      region: region.name,
+      country: region.country,
       violations,
       warnings,
       permits_required: permitsRequired,
@@ -214,7 +232,7 @@ export class RegulatoryComplianceService {
         );
 
         if (response.ok) {
-          const data = await response.json();
+          const data = await response.json() as MapboxReverseGeocodeResponse;
           if (data.features && data.features.length > 0) {
             // Extract state/region and country from the response
             let stateName = '';

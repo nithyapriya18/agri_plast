@@ -140,9 +140,10 @@ export class PolyhouseOptimizerV2 {
 
     console.log(`Grid: ${cols} × ${rows} = ${cols * rows} placement positions to try`);
 
-    // Determine orientations based on strategy and allowMixedOrientations setting
+    // Determine orientations based on strategy
     let orientations = this.getOrientations();
-    const allowMixedOrientations = this.config.optimization.allowMixedOrientations ?? false;
+    // Mixed orientations no longer supported - using orientation strategy
+    const allowMixedOrientations = false;
 
     if (!allowMixedOrientations) {
       // Uniform orientation: Find best single orientation for all polyhouses

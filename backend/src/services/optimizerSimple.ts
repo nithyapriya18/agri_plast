@@ -139,9 +139,9 @@ export class PolyhouseOptimizerSimple {
           for (const existing of polyhouses) {
             // Check if any corners are too close
             const minDist = this.CORRIDOR_WIDTH;
-            for (const c1 of testPoly.coordinates) {
-              for (const c2 of existing.coordinates) {
-                const dist = turf.distance([c1.lng, c1.lat], [c2.lng, c2.lat], { units: 'meters' });
+            for (const c1 of testPoly.bounds) {
+              for (const c2 of existing.bounds) {
+                const dist = turf.distance([c1.x, c1.y], [c2.x, c2.y], { units: 'meters' });
                 if (dist < minDist) {
                   overlaps = true;
                   break;
@@ -310,6 +310,7 @@ export class PolyhouseOptimizerSimple {
           width: this.GABLE_MODULE,
           height: this.GUTTER_MODULE,
           position: { x: blockStartX, y: blockStartY },
+          rotation: 0,
           corners: blockCorners.map(c => ({ x: c.lng, y: c.lat })),
         });
         blockIndex++;
@@ -344,10 +345,13 @@ export class PolyhouseOptimizerSimple {
 
     return {
       id: `poly-${++this.polyhouseCounter}`,
-      coordinates: corners,
+      label: String.fromCharCode(64 + this.polyhouseCounter), // A, B, C, ...
+      color: '#4CAF50',
       center,
       area: totalArea,
       innerArea: innerArea,
+      gableLength: gableLength,
+      gutterWidth: gutterWidth,
       rotation,
       blocks,
       dimensions: {
@@ -364,8 +368,8 @@ export class PolyhouseOptimizerSimple {
   private fitsInLand(polyhouse: Polyhouse, landPolygon: Feature<Polygon>): boolean {
     try {
       // SIMPLE CHECK: Just verify all corners are inside the polygon
-      return polyhouse.coordinates.every(coord => {
-        const point = turf.point([coord.lng, coord.lat]);
+      return polyhouse.bounds.every(bound => {
+        const point = turf.point([bound.x, bound.y]);
         return turf.booleanPointInPolygon(point, landPolygon);
       });
     } catch (error) {

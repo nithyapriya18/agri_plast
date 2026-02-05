@@ -136,7 +136,7 @@ versionsRouter.get('/:projectId/version/:versionNumber', async (req: Request, re
       .from('projects')
       .select('*')
       .or(`id.eq.${rootId},parent_project_id.eq.${rootId}`)
-      .eq('version', parseInt(versionNumber))
+      .eq('version', parseInt(String(versionNumber)))
       .single();
 
     if (error || !versionProject) {

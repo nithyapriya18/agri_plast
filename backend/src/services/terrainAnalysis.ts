@@ -564,7 +564,7 @@ export class TerrainAnalysisService {
             const clipped = turf.intersect(turf.featureCollection([buffered, landPolygon]));
 
             if (clipped && clipped.geometry && clipped.geometry.coordinates && clipped.geometry.coordinates[0]) {
-              const coords = clipped.geometry.coordinates[0].map((c: number[]) => ({
+              const coords = ((clipped.geometry.coordinates[0] as number[][])).map((c: number[]) => ({
                 lat: c[1],
                 lng: c[0],
               }));
@@ -610,7 +610,7 @@ export class TerrainAnalysisService {
             const clipped = turf.intersect(turf.featureCollection([buffered, landPolygon]));
 
             if (clipped && clipped.geometry && clipped.geometry.coordinates && clipped.geometry.coordinates[0]) {
-              const coords = clipped.geometry.coordinates[0].map((c: number[]) => ({
+              const coords = ((clipped.geometry.coordinates[0] as number[][])).map((c: number[]) => ({
                 lat: c[1],
                 lng: c[0],
               }));

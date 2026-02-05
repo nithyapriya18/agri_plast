@@ -120,7 +120,6 @@ export async function createPlan(req: Request, res: Response) {
         minimizeCost: configInput?.optimization?.minimizeCost ?? true,
         preferLargerPolyhouses: configInput?.optimization?.preferLargerPolyhouses ?? true,
         orientationStrategy: configInput?.optimization?.orientationStrategy ?? 'optimized',
-        allowMixedOrientations: configInput?.optimization?.allowMixedOrientations ?? userSettings?.allow_mixed_orientations ?? false,
       },
       ...configInput, // Complete override via API
     };
@@ -174,12 +173,22 @@ export async function createPlan(req: Request, res: Response) {
         const complianceService = new RegulatoryComplianceService();
         complianceData = await complianceService.checkCompliance(
           landArea.coordinates,
-          polyhouses.map(p => ({
-            area: p.area,
-            perimeter: p.perimeter,
-            height: 4, // Standard polyhouse height
-            purpose: 'Agriculture - Polyhouse'
-          }))
+          polyhouses.map(p => {
+            // Calculate perimeter from bounds
+            const perimeter = p.bounds.reduce((sum, point, i) => {
+              const nextPoint = p.bounds[(i + 1) % p.bounds.length];
+              const dx = nextPoint.x - point.x;
+              const dy = nextPoint.y - point.y;
+              return sum + Math.sqrt(dx * dx + dy * dy) * 111320; // Convert to meters approximately
+            }, 0);
+
+            return {
+              area: p.area,
+              perimeter,
+              height: 4, // Standard polyhouse height
+              purpose: 'Agriculture - Polyhouse'
+            };
+          })
         );
         console.log(`✓ Regulatory compliance check complete`);
       } catch (error) {
@@ -245,19 +254,44 @@ export async function createPlan(req: Request, res: Response) {
         constraintViolations: [], // Will be populated by optimizer if violations occur
       },
       // Include terrain analysis if available
-      terrainAnalysis: terrainData ? {
+      terrainAnalysis: terrainData ? ({
         buildableAreaPercentage: (terrainData.buildableArea / landArea.area) * 100,
         restrictedZones: terrainData.restrictedAreas.map(zone => ({
           type: zone.type,
+          coordinates: zone.coordinates,
           area: zone.area,
           reason: zone.reason,
+          severity: zone.severity,
         })),
         averageSlope: terrainData.averageSlope,
         elevationRange: terrainData.elevationRange,
         warnings: terrainData.warnings,
-      } : undefined,
+      }) : undefined,
       // Include regulatory compliance if available
-      regulatoryCompliance: complianceData,
+      regulatoryCompliance: complianceData ? {
+        compliant: complianceData.compliant,
+        region: complianceData.region,
+        country: complianceData.country,
+        violations: complianceData.violations.map(v => ({
+          severity: v.severity,
+          category: v.category,
+          description: v.description,
+          resolution: v.resolution,
+        })),
+        warnings: complianceData.warnings.map(w => ({
+          category: w.category,
+          description: w.description,
+          recommendation: w.recommendation || 'Review compliance requirements',
+        })),
+        permitsRequired: complianceData.permits_required.map(p => ({
+          permit_type: p.permit_type,
+          authority: p.authority,
+          estimated_duration_days: p.typical_duration_days,
+          estimated_cost: p.estimated_cost,
+        })),
+        estimatedComplianceCost: complianceData.estimated_compliance_cost,
+        estimatedTimelineDays: complianceData.estimated_timeline_days,
+      } : undefined,
     };
 
     // Add warnings if utilization is low
