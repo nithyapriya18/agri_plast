@@ -5,6 +5,17 @@
 
 import { Coordinate } from '@shared/types';
 
+// Mapbox API types
+interface MapboxFeature {
+  text: string;
+  place_name: string;
+  place_type: string[];
+}
+
+interface MapboxReverseGeocodeResponse {
+  features: MapboxFeature[];
+}
+
 export interface LocationInfo {
   locationName: string;
   district?: string;
@@ -52,7 +63,7 @@ export async function reverseGeocode(coordinates: Coordinate[]): Promise<Locatio
       throw new Error(`Mapbox API error: ${response.status} ${response.statusText}`);
     }
 
-    const data = await response.json();
+    const data = await response.json() as MapboxReverseGeocodeResponse;
 
     if (!data.features || data.features.length === 0) {
       throw new Error('No location data found');
