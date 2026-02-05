@@ -6,7 +6,7 @@ services:
     region: oregon
     plan: free
     buildCommand: cd shared && npm install && cd ../backend && npm install --include=dev && npm run build
-    startCommand: cd backend && node dist/index.js
+    startCommand: cd backend && npm start
     healthCheckPath: /health
     envVars:
       - key: NODE_ENV
