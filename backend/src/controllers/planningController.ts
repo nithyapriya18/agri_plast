@@ -400,7 +400,7 @@ async function processOptimizationAsync(
  */
 export async function getJobStatus(req: Request, res: Response) {
   try {
-    const { jobId } = req.params;
+    const jobId = req.params.jobId as string;
 
     const job = jobQueueService.getJob(jobId);
     if (!job) {
@@ -522,5 +522,3 @@ export async function loadPlanIntoMemory(req: Request, res: Response) {
     });
   }
 }
-
-export { planningResults };
