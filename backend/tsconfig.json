@@ -13,7 +13,7 @@
     "allowSyntheticDefaultImports": true,
     "baseUrl": ".",
     "paths": {
-      "@shared/*": ["../shared/src/*"]
+      "@shared/*": ["../shared/dist/*"]
     }
   },
   "include": ["src/**/*", "../shared/src/**/*"],
