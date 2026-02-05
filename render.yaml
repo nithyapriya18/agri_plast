@@ -1,0 +1,31 @@
+services:
+  # Backend API
+  - type: web
+    name: agriplast-backend
+    env: node
+    region: oregon
+    plan: starter
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3002
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_KEY
+        sync: false
+      - key: AWS_REGION
+        value: us-east-2
+      - key: AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false
+      - key: MAPBOX_TOKEN
+        sync: false
+      - key: GOOGLE_MAPS_API_KEY
+        sync: false
