@@ -176,6 +176,7 @@ export default function SettingsPage() {
       consider_slope: false,
       max_slope: 15.0,
       land_leveling_override: false,
+      minimum_blocks_per_polyhouse: 4,
     });
   };
 
