@@ -773,3 +773,113 @@ export function calculateMaterialCost(
 
   return totalCost;
 }
+
+// ===================================
+// DSL Export Functions
+// ===================================
+
+/**
+ * Default business settings for pricing DSL
+ */
+export const DEFAULT_BUSINESS_SETTINGS = {
+  serviceChargePercent: 10,
+  profitMarginPercent: 15,
+  gstPercent: 18,
+  transportCostPerKmTon: 50,
+  installationLaborRate: 200,
+};
+
+/**
+ * Export pricing configuration as DSL format
+ * Compatible with PricingPreferences interface from shared/types.ts
+ */
+export function exportPricingAsDSL(
+  tier: PricingTier = 'standard',
+  customizations: Array<{ category: string; overrides: Record<string, number> }> = [],
+  businessSettings: typeof DEFAULT_BUSINESS_SETTINGS = DEFAULT_BUSINESS_SETTINGS
+) {
+  return {
+    tier,
+    customizations,
+    businessSettings,
+  };
+}
+
+/**
+ * Get default pricing preferences DSL
+ */
+export function getDefaultPricingPreferencesDSL() {
+  return exportPricingAsDSL('standard', [], DEFAULT_BUSINESS_SETTINGS);
+}
+
+/**
+ * Apply customizations to pricing configuration
+ * Returns a modified pricing object with user overrides applied
+ */
+export function applyPricingCustomizations(
+  basePricing: typeof DEFAULT_PRICING,
+  customizations: Array<{ category: string; overrides: Record<string, number> }>
+): typeof DEFAULT_PRICING {
+  const modified = JSON.parse(JSON.stringify(basePricing)); // Deep clone
+
+  for (const customization of customizations) {
+    const { category, overrides } = customization;
+
+    if (modified[category]) {
+      for (const [itemKey, newPrice] of Object.entries(overrides)) {
+        if (modified[category][itemKey]) {
+          // Preserve the tier structure, update all tiers proportionally
+          const currentStandard = modified[category][itemKey].standard;
+          const ratio = newPrice / currentStandard;
+
+          modified[category][itemKey].economy = Math.round(modified[category][itemKey].economy * ratio);
+          modified[category][itemKey].standard = newPrice;
+          modified[category][itemKey].premium = Math.round(modified[category][itemKey].premium * ratio);
+        }
+      }
+    }
+  }
+
+  return modified;
+}
+
+/**
+ * Serialize pricing preferences to JSON (for database storage)
+ */
+export function serializePricingPreferences(preferences: ReturnType<typeof exportPricingAsDSL>): string {
+  return JSON.stringify(preferences);
+}
+
+/**
+ * Deserialize pricing preferences from JSON
+ */
+export function deserializePricingPreferences(json: string): ReturnType<typeof exportPricingAsDSL> {
+  try {
+    const parsed = JSON.parse(json);
+    return {
+      tier: parsed.tier || 'standard',
+      customizations: parsed.customizations || [],
+      businessSettings: {
+        ...DEFAULT_BUSINESS_SETTINGS,
+        ...parsed.businessSettings,
+      },
+    };
+  } catch (error) {
+    console.error('Failed to deserialize pricing preferences:', error);
+    return getDefaultPricingPreferencesDSL();
+  }
+}
+
+/**
+ * Get pricing configuration with user customizations applied
+ */
+export function getPricingWithCustomizations(
+  tier: PricingTier,
+  customizations: Array<{ category: string; overrides: Record<string, number> }>
+): typeof DEFAULT_PRICING {
+  if (customizations.length === 0) {
+    return DEFAULT_PRICING;
+  }
+
+  return applyPricingCustomizations(DEFAULT_PRICING, customizations);
+}
