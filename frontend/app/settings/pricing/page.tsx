@@ -7,6 +7,7 @@ import { createClient } from '@/lib/supabase/client';
 import { Download, Upload } from 'lucide-react';
 import ExcelJS from 'exceljs';
 import { ThemeToggle } from '@/components/ThemeToggle';
+import { DSLViewer } from '@/components/DSLViewer';
 
 type PricingTier = 'economy' | 'standard' | 'premium';
 
@@ -44,6 +45,7 @@ export default function PricingConfigPage() {
   const [defaultPricing, setDefaultPricing] = useState<any>(null);
   const [customPricing, setCustomPricing] = useState<any>(null);
   const [activeCategory, setActiveCategory] = useState<string>('business');
+  const [showDSL, setShowDSL] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -389,6 +391,54 @@ export default function PricingConfigPage() {
       </header>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* DSL View Section */}
+        <div className="bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-900/20 dark:to-emerald-900/20 rounded-xl p-6 border border-green-200 dark:border-green-800 mb-6">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+                <svg className="w-5 h-5 text-green-600 dark:text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                Pricing DSL
+              </h3>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                View your pricing in DSL format • Can be modified via chat in projects
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowDSL(!showDSL)}
+              className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-medium transition-colors duration-150"
+            >
+              {showDSL ? 'Hide DSL' : 'View DSL'}
+            </button>
+          </div>
+
+          {showDSL && (
+            <DSLViewer
+              data={{
+                pricingPreferences: {
+                  tier: settings.pricingTier,
+                  customizations: Object.keys(customPricing || {}).map(category => ({
+                    category,
+                    overrides: customPricing[category] || {},
+                  })),
+                  businessSettings: {
+                    serviceChargePercent: settings.serviceChargePercentage,
+                    profitMarginPercent: settings.profitMarginPercentage,
+                    gstPercent: settings.gstPercentage,
+                    transportCostPerKmTon: settings.transportationCostPerKm,
+                    installationLaborRate: settings.installationLaborRate,
+                  },
+                },
+              }}
+              title="Pricing Preferences DSL"
+              collapsible={false}
+              maxHeight="400px"
+            />
+          )}
+        </div>
+
         <div className="grid grid-cols-12 gap-6">
           {/* Sidebar */}
           <div className="col-span-3">

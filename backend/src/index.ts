@@ -11,6 +11,7 @@ import { usageRouter } from './routes/usage';
 import { pricingRouter } from './routes/pricing';
 import { settingsRouter } from './routes/settings';
 import { versionsRouter } from './routes/versions';
+import learningRouter from './routes/learning';
 
 // Load environment variables
 dotenv.config();
@@ -50,6 +51,7 @@ app.use('/api/usage', usageRouter);
 app.use('/api/pricing', pricingRouter);
 app.use('/api/user_settings', settingsRouter);
 app.use('/api/projects', versionsRouter);
+app.use('/api/learning', learningRouter);
 
 // Health check
 app.get('/health', (req, res) => {
