@@ -92,6 +92,10 @@ export default function MapComponent({
         console.log('Style already loaded on map load');
         setStyleReady(true);
       }
+      // Ensure map is properly sized
+      setTimeout(() => {
+        map.current?.resize();
+      }, 100);
     });
 
     // Use style.load event which fires when the style is fully loaded
@@ -137,6 +141,30 @@ export default function MapComponent({
     };
   }, []);
 
+  // Ensure map resizes properly when container size changes
+  useEffect(() => {
+    if (!map.current || !mapLoaded) return;
+
+    const resizeMap = () => {
+      console.log('Resizing map to fit container');
+      map.current?.resize();
+    };
+
+    // Resize immediately
+    resizeMap();
+
+    // Also resize after a short delay to handle any animations
+    const timeout = setTimeout(resizeMap, 200);
+
+    // Listen for window resize events
+    window.addEventListener('resize', resizeMap);
+
+    return () => {
+      clearTimeout(timeout);
+      window.removeEventListener('resize', resizeMap);
+    };
+  }, [mapLoaded]);
+
   // Load existing land boundary into draw control
   useEffect(() => {
     if (!draw.current || !map.current || !mapLoaded) return;
@@ -147,8 +175,10 @@ export default function MapComponent({
     // Clear existing drawings
     draw.current.deleteAll();
 
-    // Add the land boundary as a polygon
+    // Add the land boundary as a polygon with an ID
+    const featureId = 'land-boundary-polygon';
     const feature = {
+      id: featureId,
       type: 'Feature' as const,
       geometry: {
         type: 'Polygon' as const,
@@ -160,7 +190,8 @@ export default function MapComponent({
       properties: {}
     };
 
-    draw.current.add(feature);
+    const addedFeatures = draw.current.add(feature);
+    console.log('Added features to draw:', addedFeatures);
 
     // Fit map to show the boundary
     if (!hasInitiallyFitBounds.current) {
@@ -176,34 +207,56 @@ export default function MapComponent({
 
   // Toggle drawing mode based on editMode
   useEffect(() => {
-    if (!draw.current || !map.current) return;
+    if (!draw.current || !map.current || !mapLoaded) return;
 
     if (editMode) {
       // If there's already a boundary loaded, enable editing of existing polygon
       if (landBoundary.length > 0) {
         const features = draw.current.getAll();
-        if (features.features.length > 0 && features.features[0].id) {
-          try {
-            // Switch to direct_select mode to edit the existing polygon
-            (draw.current.changeMode as any)('direct_select', { featureId: features.features[0].id });
-          } catch (error) {
-            console.warn('Could not enter direct_select mode, falling back to simple_select:', error);
-            // Fall back to simple_select if direct_select fails
+        console.log('Features in draw control:', features);
+
+        if (features.features.length > 0) {
+          const featureId = features.features[0].id;
+          console.log('Feature ID for direct select:', featureId);
+
+          if (featureId) {
+            try {
+              // Switch to direct_select mode to edit the existing polygon
+              (draw.current.changeMode as any)('direct_select', { featureId: featureId });
+              console.log('Entered direct_select mode successfully');
+            } catch (error) {
+              console.warn('Could not enter direct_select mode:', error);
+              // Fall back to simple_select if direct_select fails
+              try {
+                draw.current.changeMode('simple_select');
+              } catch (e) {
+                console.error('Failed to switch to simple_select:', e);
+              }
+            }
+          } else {
+            console.warn('No feature ID available, using simple_select');
             draw.current.changeMode('simple_select');
           }
         } else {
           // No polygon loaded yet, allow drawing new one
+          console.log('No features loaded, enabling draw_polygon mode');
           draw.current.changeMode('draw_polygon');
         }
       } else {
         // No boundary, allow drawing new one
+        console.log('No boundary, enabling draw_polygon mode');
         draw.current.changeMode('draw_polygon');
       }
     } else {
       // Disable drawing - switch to simple_select mode (pan/zoom only)
-      draw.current.changeMode('simple_select');
+      console.log('Edit mode disabled, switching to simple_select');
+      try {
+        draw.current.changeMode('simple_select');
+      } catch (error) {
+        console.error('Failed to switch to simple_select:', error);
+      }
     }
-  }, [editMode, landBoundary.length]);
+  }, [editMode, landBoundary.length, mapLoaded]);
 
   // Fetch autocomplete suggestions with debounce
   const fetchSuggestions = async (query: string) => {
