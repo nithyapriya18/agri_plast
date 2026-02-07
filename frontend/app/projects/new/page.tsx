@@ -136,6 +136,12 @@ export default function NewProjectPageSimplified() {
         if (points.length >= 3) {
           setLandBoundary(points);
 
+          // If still on form step, auto-proceed to map-chat with Quick Start mode
+          if (flowStep === 'form' && projectName.trim()) {
+            setUseQuickStart(true);
+            setFlowStep('map-chat');
+          }
+
           const message: ConversationMessage = {
             role: 'assistant',
             content: `✅ KML file loaded successfully! I've extracted ${points.length} boundary points from "${file.name}". The boundary is now visible on the map.`,
@@ -543,7 +549,7 @@ export default function NewProjectPageSimplified() {
   // Render optimizing step
   if (flowStep === 'optimizing') {
     return (
-      <div className="min-h-[calc(100vh-4rem)] flex items-center justify-center bg-gray-50 dark:bg-gray-900">
+      <div className="h-full flex items-center justify-center bg-gray-50 dark:bg-gray-900">
         <div className="text-center">
           <Loader2 className="w-16 h-16 animate-spin text-agriplast-green-600 dark:text-cyan-400 mx-auto mb-4" />
           <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
@@ -568,9 +574,9 @@ export default function NewProjectPageSimplified() {
 
   // Render map-chat step (split screen)
   return (
-    <div className="min-h-[calc(100vh-4rem)] flex flex-col bg-gray-50 dark:bg-gray-900">
+    <div className="h-full flex flex-col bg-gray-50 dark:bg-gray-900">
       {/* Top Bar */}
-      <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 flex items-center justify-between">
+      <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 flex items-center justify-between shrink-0">
         <div>
           <h1 className="text-lg font-bold text-gray-900 dark:text-white">
             {projectName}
