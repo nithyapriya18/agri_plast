@@ -87,9 +87,22 @@ export default function MapComponent({
     map.current.on('load', () => {
       console.log('Map load event fired');
       setMapLoaded(true);
+      // Check if style is also loaded
+      if (map.current?.isStyleLoaded()) {
+        console.log('Style already loaded on map load');
+        setStyleReady(true);
+      }
     });
 
-    // Use styledata event which fires when style is loaded/changed
+    // Use style.load event which fires when the style is fully loaded
+    map.current.on('style.load', () => {
+      console.log('Style load event fired');
+      if (map.current?.isStyleLoaded()) {
+        setStyleReady(true);
+      }
+    });
+
+    // Fallback: Also listen to styledata for style changes
     map.current.on('styledata', () => {
       if (map.current?.isStyleLoaded()) {
         console.log('Style is now loaded (styledata event)');
@@ -317,6 +330,13 @@ export default function MapComponent({
     }
 
     const mapInstance = map.current;
+
+    // Additional check to ensure style is truly loaded
+    if (!mapInstance.isStyleLoaded()) {
+      console.log('Style not fully loaded yet, waiting...');
+      return;
+    }
+
     console.log('Style is loaded, proceeding with polyhouse rendering...');
 
     // CRITICAL FIX: Handle null/undefined polyhouses
