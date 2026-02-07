@@ -334,7 +334,7 @@ export default function ProjectDetailPageSimplified({ params }: { params: Promis
 
   if (loading) {
     return (
-      <div className="h-screen flex items-center justify-center">
+      <div className="min-h-[calc(100vh-4rem)] flex items-center justify-center">
         <Loader2 className="w-12 h-12 animate-spin text-agriplast-green-600" />
       </div>
     );
@@ -342,7 +342,7 @@ export default function ProjectDetailPageSimplified({ params }: { params: Promis
 
   if (!project) {
     return (
-      <div className="h-screen flex items-center justify-center">
+      <div className="min-h-[calc(100vh-4rem)] flex items-center justify-center">
         <div className="text-center">
           <p className="text-red-600 font-semibold">Project not found</p>
         </div>
@@ -351,7 +351,7 @@ export default function ProjectDetailPageSimplified({ params }: { params: Promis
   }
 
   return (
-    <div className="h-screen flex flex-col bg-gray-50 dark:bg-gray-900">
+    <div className="min-h-[calc(100vh-4rem)] flex flex-col bg-gray-50 dark:bg-gray-900">
       {/* Top Bar */}
       <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3">
         <div className="flex items-center justify-between">

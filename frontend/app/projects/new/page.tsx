@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import { PlanningResult, ConversationMessage, Coordinate } from '@shared/types';
@@ -8,7 +8,7 @@ import EnhancedChatInterface from '@/components/EnhancedChatInterface';
 import ChatLayout from '@/components/ChatLayout';
 import QuotationPanel from '@/components/QuotationPanel';
 import { createClient } from '@/lib/supabase/client';
-import { Loader2, Sparkles, Zap, ArrowRight } from 'lucide-react';
+import { Loader2, Sparkles, Zap, ArrowRight, Upload } from 'lucide-react';
 
 // Dynamic import for MapComponent to avoid SSR issues
 const MapComponent = dynamic(() => import('@/components/MapComponent'), {
@@ -24,6 +24,7 @@ type FlowStep = 'form' | 'map-chat' | 'optimizing';
 
 export default function NewProjectPageSimplified() {
   const router = useRouter();
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [user, setUser] = useState<any>(null);
   const [flowStep, setFlowStep] = useState<FlowStep>('form');
 
@@ -32,6 +33,7 @@ export default function NewProjectPageSimplified() {
   const [locationInput, setLocationInput] = useState(''); // GPS link, address, or KML
   const [description, setDescription] = useState('');
   const [useQuickStart, setUseQuickStart] = useState<boolean | null>(null);
+  const [kmlFile, setKmlFile] = useState<File | null>(null);
 
   // Map state
   const [landBoundary, setLandBoundary] = useState<Coordinate[]>([]);
@@ -51,6 +53,7 @@ export default function NewProjectPageSimplified() {
 
   useEffect(() => {
     checkAuth();
+    autoGenerateProjectName();
   }, []);
 
   // Auto-start chat with onboarding message
@@ -77,6 +80,74 @@ export default function NewProjectPageSimplified() {
     }
 
     setUser(user);
+  };
+
+  const autoGenerateProjectName = async () => {
+    try {
+      const supabase = createClient();
+      const { data: { user } } = await supabase.auth.getUser();
+
+      if (!user) return;
+
+      // Get user's project count
+      const { count, error } = await supabase
+        .from('projects')
+        .select('*', { count: 'exact', head: true })
+        .eq('user_id', user.id);
+
+      if (error) {
+        console.error('Error fetching project count:', error);
+      }
+
+      const projectNumber = (count || 0) + 1;
+      const timestamp = new Date().toISOString().split('T')[0].replace(/-/g, ''); // YYYYMMDD format
+      const generatedName = `Project${projectNumber}_${timestamp}`;
+
+      setProjectName(generatedName);
+    } catch (error) {
+      console.error('Error auto-generating project name:', error);
+      setProjectName('Project1_' + new Date().toISOString().split('T')[0].replace(/-/g, ''));
+    }
+  };
+
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setKmlFile(file);
+    setLocationInput(`KML file: ${file.name}`);
+
+    // Parse KML file
+    try {
+      const text = await file.text();
+      const parser = new DOMParser();
+      const xmlDoc = parser.parseFromString(text, 'text/xml');
+
+      // Extract coordinates from KML
+      const coordinates = xmlDoc.getElementsByTagName('coordinates')[0]?.textContent?.trim();
+
+      if (coordinates) {
+        // Parse KML coordinates (lng,lat,alt format)
+        const points = coordinates.split(/\s+/).map(coord => {
+          const [lng, lat] = coord.split(',').map(Number);
+          return { lat, lng };
+        }).filter(point => !isNaN(point.lat) && !isNaN(point.lng));
+
+        if (points.length >= 3) {
+          setLandBoundary(points);
+
+          const message: ConversationMessage = {
+            role: 'assistant',
+            content: `✅ KML file loaded successfully! I've extracted ${points.length} boundary points from "${file.name}". The boundary is now visible on the map.`,
+            timestamp: new Date(),
+          };
+          setConversationHistory(prev => [...prev, message]);
+        }
+      }
+    } catch (error) {
+      console.error('Error parsing KML file:', error);
+      alert('Failed to parse KML file. Please ensure it\'s a valid KML format.');
+    }
   };
 
   const handleQuickStart = () => {
@@ -357,6 +428,9 @@ export default function NewProjectPageSimplified() {
                   className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-agriplast-green-500 dark:bg-gray-700 dark:text-white"
                   required
                 />
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                  Auto-generated name (you can edit it)
+                </p>
               </div>
 
               {/* Location Input - Optional but helpful */}
@@ -364,15 +438,33 @@ export default function NewProjectPageSimplified() {
                 <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
                   Location (optional)
                 </label>
-                <input
-                  type="text"
-                  value={locationInput}
-                  onChange={(e) => setLocationInput(e.target.value)}
-                  placeholder="Paste GPS link, address, or upload KML later"
-                  className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-agriplast-green-500 dark:bg-gray-700 dark:text-white"
-                />
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={locationInput}
+                    onChange={(e) => setLocationInput(e.target.value)}
+                    placeholder="Paste GPS link or address"
+                    className="flex-1 px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-agriplast-green-500 dark:bg-gray-700 dark:text-white"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="px-4 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg flex items-center gap-2 font-medium transition-colors duration-150"
+                    title="Upload KML file"
+                  >
+                    <Upload className="w-5 h-5" />
+                    <span>Upload KML</span>
+                  </button>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".kml,.kmz"
+                    onChange={handleFileUpload}
+                    className="hidden"
+                  />
+                </div>
                 <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                  You can also draw on the map or upload KML in the next step
+                  You can also draw on the map in the next step
                 </p>
               </div>
 
@@ -451,7 +543,7 @@ export default function NewProjectPageSimplified() {
   // Render optimizing step
   if (flowStep === 'optimizing') {
     return (
-      <div className="h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
+      <div className="min-h-[calc(100vh-4rem)] flex items-center justify-center bg-gray-50 dark:bg-gray-900">
         <div className="text-center">
           <Loader2 className="w-16 h-16 animate-spin text-agriplast-green-600 dark:text-cyan-400 mx-auto mb-4" />
           <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
@@ -476,7 +568,7 @@ export default function NewProjectPageSimplified() {
 
   // Render map-chat step (split screen)
   return (
-    <div className="h-screen flex flex-col bg-gray-50 dark:bg-gray-900">
+    <div className="min-h-[calc(100vh-4rem)] flex flex-col bg-gray-50 dark:bg-gray-900">
       {/* Top Bar */}
       <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 flex items-center justify-between">
         <div>
