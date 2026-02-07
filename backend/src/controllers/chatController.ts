@@ -1,20 +1,10 @@
 import { Request, Response } from 'express';
-import { BedrockService } from '../services/bedrock';
+import { getAIService } from '../services/aiServiceFactory';
 import { planningResults } from './planningController';
 import { ChatRequest, ConversationMessage } from '@shared/types';
 import { PolyhouseOptimizerV3 } from '../services/optimizerV3';
 import { generateQuotation } from '../services/quotation';
 import { usageTrackingService } from '../services/usageTracking';
-
-// Lazy-load Bedrock service to avoid crashing on startup if AWS credentials are missing
-let bedrockService: BedrockService | null = null;
-
-function getBedrockService(): BedrockService {
-  if (!bedrockService) {
-    bedrockService = new BedrockService();
-  }
-  return bedrockService;
-}
 
 /**
  * Handle conversational chat about polyhouse planning
@@ -31,8 +21,8 @@ export async function handleChat(req: Request, res: Response) {
       return res.status(404).json({ error: 'Planning result not found' });
     }
 
-    // Process conversation with Bedrock (including customer preferences for context)
-    const result = await getBedrockService().handleConversation(
+    // Process conversation with AI service (including customer preferences for context)
+    const result = await getAIService().handleConversation(
       message,
       conversationHistory,
       currentPlan,

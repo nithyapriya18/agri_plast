@@ -7,14 +7,9 @@ import {
   InvokeModelCommand,
 } from '@aws-sdk/client-bedrock-runtime';
 import { ConversationMessage, PlanningResult } from '@shared/types';
+import { AIService, ConversationResponse, ExplanationResponse, TokenUsage } from './aiServiceTypes';
 
-export interface TokenUsage {
-  inputTokens: number;
-  outputTokens: number;
-  modelId: string;
-}
-
-export class BedrockService {
+export class BedrockService implements AIService {
   private client: BedrockRuntimeClient;
   private modelId: string;
 
@@ -50,7 +45,7 @@ export class BedrockService {
     conversationHistory: ConversationMessage[],
     currentPlan?: PlanningResult,
     customerPreferences?: any
-  ): Promise<{ response: string; requiresRecalculation: boolean; updatedConfig?: any; usage?: TokenUsage }> {
+  ): Promise<ConversationResponse> {
     // Build system prompt with context about the current plan and customer preferences
     const systemPrompt = this.buildSystemPrompt(currentPlan, customerPreferences);
 
@@ -478,7 +473,7 @@ When answering questions, consider the local climate and latitude when giving ad
   /**
    * Generate explanation of why polyhouses were placed in a certain way
    */
-  async explainPlacement(planningResult: PlanningResult): Promise<{ text: string; usage: TokenUsage }> {
+  async explainPlacement(planningResult: PlanningResult): Promise<ExplanationResponse> {
     const systemPrompt = `You are explaining the automated polyhouse placement algorithm to a user. Be clear and educational.`;
 
     const userPrompt = `Explain why the polyhouses were placed the way they are, given:

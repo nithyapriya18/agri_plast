@@ -324,3 +324,115 @@ export const POLYHOUSE_COLORS = [
   '#3F51B5', // Indigo
   '#009688', // Teal
 ];
+
+// ===================================
+// Conversational-First DSL Extensions
+// ===================================
+
+/**
+ * Pricing preferences DSL
+ * Defines user's pricing tier and customizations
+ */
+export interface PricingPreferences {
+  tier: 'economy' | 'standard' | 'premium';
+  customizations: Array<{
+    category: string; // e.g., "structural", "covering", "irrigation"
+    overrides: Record<string, number>; // Item name → custom price
+  }>;
+  businessSettings: {
+    serviceChargePercent: number;
+    profitMarginPercent: number;
+    gstPercent: number;
+    transportCostPerKmTon: number;
+    installationLaborRate: number;
+  };
+}
+
+/**
+ * Design preferences DSL
+ * Extracted from conversational history or forms
+ */
+export interface DesignPreferences {
+  cropType: string; // e.g., "tomatoes", "cucumbers", "mixed"
+  polyhouseSizePreference: 'large' | 'mixed' | 'small';
+  automationRequired: boolean;
+  vehicleAccessRequired: boolean;
+  priority: 'coverage' | 'quality' | 'balanced';
+  orientationPreference: 'uniform' | 'varied' | 'optimized';
+  timeline: 'urgent' | 'planned';
+}
+
+/**
+ * Learning profile DSL
+ * AI-learned user preferences and patterns
+ */
+export interface LearningProfile {
+  projectCount: number;
+  commonPatterns: string[]; // Extracted preference patterns
+  lastModified: Date;
+  conversationInsights: string[]; // AI-learned insights from conversations
+  preferredSettings?: Partial<PolyhouseConfiguration>; // Most commonly used settings
+}
+
+/**
+ * Complete user preferences DSL
+ * Combines all user configuration, pricing, design, and learning data
+ */
+export interface UserPreferencesDSL {
+  userId: string;
+
+  // Existing polyhouse configuration
+  polyhouseConfig: PolyhouseConfiguration;
+
+  // NEW: Pricing preferences
+  pricingPreferences: PricingPreferences;
+
+  // NEW: Design preferences
+  designPreferences: DesignPreferences;
+
+  // NEW: Learning profile
+  learningProfile: LearningProfile;
+
+  // Metadata
+  createdAt: Date;
+  updatedAt: Date;
+  version: number; // For tracking DSL version/schema changes
+}
+
+/**
+ * Conversation context
+ * Additional context passed to AI for better understanding
+ */
+export interface ConversationContext {
+  currentPlan?: PlanningResult;
+  userPreferences?: UserPreferencesDSL;
+  recentProjects?: Array<{
+    id: string;
+    name: string;
+    createdAt: Date;
+    polyhouseCount: number;
+    utilizationPercentage: number;
+  }>;
+  sessionStartTime: Date;
+  conversationTurn: number;
+}
+
+/**
+ * DSL view request
+ * For viewing any part of the DSL via chat
+ */
+export interface DSLViewRequest {
+  userId: string;
+  section: 'pricing' | 'design' | 'learning' | 'polyhouse' | 'all';
+}
+
+/**
+ * DSL update request
+ * For updating DSL via conversational interface
+ */
+export interface DSLUpdateRequest {
+  userId: string;
+  section: 'pricing' | 'design' | 'learning' | 'polyhouse';
+  updates: Partial<PricingPreferences | DesignPreferences | LearningProfile | PolyhouseConfiguration>;
+  source: 'chat' | 'form' | 'api'; // Track how the update was made
+}

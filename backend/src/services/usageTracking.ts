@@ -4,7 +4,7 @@
  */
 
 import { supabase } from '../lib/supabase';
-import { TokenUsage } from './bedrock';
+import { TokenUsage } from './aiServiceTypes';
 
 // Pricing per 1K tokens (in USD) for different models
 // Source: AWS Bedrock pricing (as of 2025)
