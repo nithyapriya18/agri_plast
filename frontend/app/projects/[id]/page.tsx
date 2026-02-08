@@ -139,7 +139,7 @@ export default function ProjectDetailPageSimplified({ params }: { params: Promis
       };
 
       // Send to backend to load into memory
-      const response = await fetch('/api/planning/load-into-memory', {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/planning/load`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -149,11 +149,16 @@ export default function ProjectDetailPageSimplified({ params }: { params: Promis
       });
 
       if (!response.ok) {
-        console.warn('Failed to load planning result into backend memory');
+        const errorData = await response.json();
+        console.error('Failed to load planning result into backend memory:', errorData);
+        throw new Error('Could not load project for chat. Please try refreshing the page.');
+      } else {
+        console.log('✓ Planning result loaded into backend memory successfully');
       }
     } catch (error) {
       console.error('Error loading planning result into memory:', error);
-      // Non-blocking error - chat might not work but rest of app will
+      // Show error to user since chat won't work without this
+      alert('Warning: Could not initialize chat functionality. Please refresh the page to enable chat.');
     }
   };
 
