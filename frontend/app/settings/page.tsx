@@ -5,7 +5,6 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 import { ThemeToggle } from '@/components/ThemeToggle';
-import { DSLViewer } from '@/components/DSLViewer';
 
 interface UserSettings {
   polyhouse_gap: number;
@@ -52,7 +51,6 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false);
   const [user, setUser] = useState<any>(null);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
-  const [showDSL, setShowDSL] = useState(false);
 
   useEffect(() => {
     loadSettings();
@@ -196,6 +194,24 @@ export default function SettingsPage() {
   return (
     <div className="py-6 bg-gray-50 dark:bg-gray-900 transition-colors">
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+        {/* Tabs */}
+        <div className="mb-6 border-b border-gray-200 dark:border-gray-700">
+          <nav className="flex gap-8">
+            <Link
+              href="/settings"
+              className="py-3 px-1 border-b-2 border-green-600 dark:border-green-500 text-green-600 dark:text-green-500 font-medium text-sm"
+            >
+              General
+            </Link>
+            <Link
+              href="/settings/pricing"
+              className="py-3 px-1 border-b-2 border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600 font-medium text-sm transition-colors"
+            >
+              Pricing
+            </Link>
+          </nav>
+        </div>
+
         {message && (
           <div
             className={`mb-6 p-4 rounded-lg transition-colors ${
@@ -207,72 +223,6 @@ export default function SettingsPage() {
             {message.text}
           </div>
         )}
-
-        {/* DSL View Section */}
-        <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 rounded-xl p-6 border border-blue-200 dark:border-blue-800 mb-6">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
-                <svg className="w-5 h-5 text-blue-600 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
-                </svg>
-                Configuration DSL
-              </h3>
-              <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-                View your settings in DSL format • Can be modified via chat in projects
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => setShowDSL(!showDSL)}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors duration-150"
-            >
-              {showDSL ? 'Hide DSL' : 'View DSL'}
-            </button>
-          </div>
-
-          {showDSL && (
-            <DSLViewer
-              data={{
-                polyhouseConfig: {
-                  blockDimensions: {
-                    width: settings.block_width,
-                    height: settings.block_height,
-                  },
-                  gutterWidth: settings.gutter_width,
-                  polyhouseGap: settings.polyhouse_gap,
-                  safetyBuffer: settings.safety_buffer,
-                  maxSideLength: settings.max_side_length,
-                  minSideLength: settings.min_side_length,
-                  minCornerDistance: settings.min_corner_distance,
-                  minimumBlocksPerPolyhouse: settings.minimum_blocks_per_polyhouse,
-                  maxLandArea: settings.max_land_area,
-                  solarOrientation: {
-                    enabled: settings.solar_orientation_enabled,
-                    latitudeDegrees: 0,
-                    allowedDeviationDegrees: settings.allow_mixed_orientations ? 45 : 15,
-                  },
-                  terrain: {
-                    considerSlope: settings.consider_slope,
-                    maxSlope: settings.max_slope,
-                    landLevelingOverride: settings.land_leveling_override,
-                    avoidWater: settings.avoid_water,
-                    ignoreRestrictedZones: false,
-                  },
-                  optimization: {
-                    placementStrategy: settings.placement_strategy,
-                    minimizeCost: settings.placement_strategy === 'maximize_coverage',
-                    preferLargerPolyhouses: settings.placement_strategy === 'maximize_coverage',
-                    orientationStrategy: settings.allow_mixed_orientations ? 'varied' : 'uniform',
-                  },
-                },
-              }}
-              title="Design Settings DSL"
-              collapsible={false}
-              maxHeight="400px"
-            />
-          )}
-        </div>
 
         <form onSubmit={handleSave} className="space-y-6">
           {/* Polyhouse Dimensions */}

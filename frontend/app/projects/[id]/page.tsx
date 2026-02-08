@@ -5,11 +5,11 @@ import { useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import { PlanningResult, Polyhouse, ConversationMessage } from '@shared/types';
 import ChatLayout from '@/components/ChatLayout';
-import QuotationPanel from '@/components/QuotationPanel';
+import QuotationModal from '@/components/QuotationModal';
 import EnhancedChatInterface from '@/components/EnhancedChatInterface';
-import { DSLViewer, DSLQuickActions } from '@/components/DSLViewer';
+import DSLViewer, { DSLQuickActions } from '@/components/DSLViewer';
 import { createClient } from '@/lib/supabase/client';
-import { Loader2, Download, Save, Edit3, Trash2, Eye, EyeOff } from 'lucide-react';
+import { Loader2, Download, Save, Edit3, Trash2, ChevronDown } from 'lucide-react';
 
 const MapComponent = dynamic(() => import('@/components/MapComponent'), {
   ssr: false,
@@ -50,9 +50,10 @@ export default function ProjectDetailPageSimplified({ params }: { params: Promis
   const [loading, setLoading] = useState(true);
 
   // UI state
-  const [showQuotation, setShowQuotation] = useState(false);
+  const [showQuotationModal, setShowQuotationModal] = useState(false);
   const [showDSL, setShowDSL] = useState(false);
   const [editMode, setEditMode] = useState(false);
+  const [showExportMenu, setShowExportMenu] = useState(false);
 
   // Chat state
   const [conversationHistory, setConversationHistory] = useState<ConversationMessage[]>([]);
@@ -117,7 +118,7 @@ export default function ProjectDetailPageSimplified({ params }: { params: Promis
         // Add welcome message if no chat history
         const welcomeMessage: ConversationMessage = {
           role: 'assistant',
-          content: `👋 Welcome back to **${project?.name}**!\n\n📊 **Current Status:**\n- ${project?.polyhouse_count} polyhouses\n- ${project?.utilization_percentage.toFixed(1)}% utilization\n- ₹${project?.estimated_cost.toLocaleString('en-IN')} estimated cost\n\n💬 I can help you:\n- Maximize coverage or adjust spacing\n- View detailed pricing and settings (click DSL button above)\n- Modify materials or configuration\n- Export to PDF\n- Create a new version with changes\n\nWhat would you like to do?`,
+          content: `Welcome back to **${project?.name}**!\n\n**Current Status:**\n- ${project?.polyhouse_count} polyhouses\n- ${project?.utilization_percentage.toFixed(1)}% utilization\n- **Estimated Cost: ₹${project?.estimated_cost.toLocaleString('en-IN')}** [View Quotation](#quotation)\n\nI can help you:\n- Maximize coverage or adjust spacing\n- Modify materials or configuration\n- Export documents\n- Create a new version with changes\n\nWhat would you like to do?`,
           timestamp: new Date(),
         };
         setConversationHistory([welcomeMessage]);
@@ -275,28 +276,76 @@ export default function ProjectDetailPageSimplified({ params }: { params: Promis
     }
   };
 
-  const handleExportPDF = async () => {
+  const handleExport = async (type: 'quotation' | 'cad' | 'both') => {
+    if (!project) {
+      alert('Project data not available');
+      return;
+    }
+
+    setShowExportMenu(false);
+
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/projects/${id}/export`, {
-        method: 'POST',
-      });
+      // Create planning result from project data
+      const planningResult = project as any;
 
-      if (!response.ok) {
-        throw new Error('Failed to export PDF');
+      if (type === 'both') {
+        // Generate both PDFs
+        const { generateProjectReports } = await import('@/lib/technicalDrawing');
+        await generateProjectReports({
+          projectName: project.name,
+          locationName: project.location_name || 'Unknown Location',
+          landAreaSqm: project.land_area_sqm,
+          polyhouseCount: project.polyhouse_count,
+          totalCoverageSqm: project.polyhouse_count * 500, // Approximate
+          utilizationPercentage: project.utilization_percentage,
+          polyhouses: planningResult.polyhouses || [],
+          quotation: planningResult.quotation || {},
+          createdAt: project.created_at,
+        });
+        alert('Successfully generated both Technical Drawing and Quotation PDFs');
+      } else if (type === 'cad') {
+        // Generate only technical drawing
+        const { generateTechnicalDrawing } = await import('@/lib/technicalDrawing');
+        const blob = await generateTechnicalDrawing({
+          projectName: project.name,
+          locationName: project.location_name || 'Unknown Location',
+          landAreaSqm: project.land_area_sqm,
+          polyhouseCount: project.polyhouse_count,
+          totalCoverageSqm: project.polyhouse_count * 500,
+          utilizationPercentage: project.utilization_percentage,
+          polyhouses: planningResult.polyhouses || [],
+          createdAt: project.created_at,
+        });
+
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${project.name.replace(/\s+/g, '_')}_Technical_Drawing.pdf`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        alert('Successfully generated Technical Drawing PDF');
+      } else if (type === 'quotation') {
+        // Generate only quotation
+        const { generateProjectPDF } = await import('@/lib/pdfExport');
+        await generateProjectPDF({
+          projectName: project.name,
+          locationName: project.location_name || 'Unknown Location',
+          landAreaSqm: project.land_area_sqm,
+          polyhouseCount: project.polyhouse_count,
+          totalCoverageSqm: project.polyhouse_count * 500,
+          utilizationPercentage: project.utilization_percentage,
+          estimatedCost: project.estimated_cost,
+          polyhouses: planningResult.polyhouses || [],
+          quotation: planningResult.quotation || {},
+          createdAt: project.created_at,
+        });
+        alert('Successfully generated Quotation PDF');
       }
-
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${project?.name || 'project'}.pdf`;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
     } catch (error) {
-      console.error('Error exporting PDF:', error);
-      alert('Failed to export PDF');
+      console.error('Error generating PDF:', error);
+      alert(`Failed to generate ${type === 'both' ? 'PDFs' : 'PDF'}. Please try again.`);
     }
   };
 
@@ -351,9 +400,9 @@ export default function ProjectDetailPageSimplified({ params }: { params: Promis
   }
 
   return (
-    <div className="h-full flex flex-col bg-gray-50 dark:bg-gray-900">
+    <div className="h-screen w-screen flex flex-col bg-gray-50 dark:bg-gray-900 overflow-hidden">
       {/* Top Bar */}
-      <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 shrink-0">
+      <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 flex-shrink-0">
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-lg font-bold text-gray-900 dark:text-white">
@@ -365,15 +414,6 @@ export default function ProjectDetailPageSimplified({ params }: { params: Promis
           </div>
 
           <div className="flex items-center gap-2">
-            {/* Quotation Toggle */}
-            <button
-              onClick={() => setShowQuotation(!showQuotation)}
-              className="p-2 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors duration-150"
-              title={showQuotation ? 'Hide Quotation' : 'Show Quotation'}
-            >
-              {showQuotation ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
-            </button>
-
             {/* Edit Mode Toggle */}
             <button
               onClick={() => setEditMode(!editMode)}
@@ -387,14 +427,63 @@ export default function ProjectDetailPageSimplified({ params }: { params: Promis
               <Edit3 className="w-5 h-5" />
             </button>
 
-            {/* Export PDF */}
-            <button
-              onClick={handleExportPDF}
-              className="px-3 py-2 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors duration-150 flex items-center gap-1"
-            >
-              <Download className="w-4 h-4" />
-              <span>Export PDF</span>
-            </button>
+            {/* Export Menu */}
+            <div className="relative">
+              <button
+                onClick={() => setShowExportMenu(!showExportMenu)}
+                className="px-3 py-2 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors duration-150 flex items-center gap-1"
+              >
+                <Download className="w-4 h-4" />
+                <span>Export</span>
+                <ChevronDown className="w-3 h-3" />
+              </button>
+
+              {showExportMenu && (
+                <>
+                  {/* Backdrop */}
+                  <div
+                    className="fixed inset-0 z-10"
+                    onClick={() => setShowExportMenu(false)}
+                  />
+
+                  {/* Dropdown Menu */}
+                  <div className="absolute right-0 mt-2 w-56 bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 z-20 overflow-hidden">
+                    <button
+                      onClick={() => handleExport('quotation')}
+                      className="w-full px-4 py-3 text-left text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors duration-150 flex items-start gap-3"
+                    >
+                      <Download className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                      <div>
+                        <div className="font-medium">Quotation Only</div>
+                        <div className="text-xs text-gray-500 dark:text-gray-400">Pricing and materials</div>
+                      </div>
+                    </button>
+
+                    <button
+                      onClick={() => handleExport('cad')}
+                      className="w-full px-4 py-3 text-left text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors duration-150 flex items-start gap-3 border-t border-gray-100 dark:border-gray-700"
+                    >
+                      <Download className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                      <div>
+                        <div className="font-medium">CAD Drawing Only</div>
+                        <div className="text-xs text-gray-500 dark:text-gray-400">Technical layout</div>
+                      </div>
+                    </button>
+
+                    <button
+                      onClick={() => handleExport('both')}
+                      className="w-full px-4 py-3 text-left text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors duration-150 flex items-start gap-3 border-t border-gray-100 dark:border-gray-700"
+                    >
+                      <Download className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                      <div>
+                        <div className="font-medium">Both Documents</div>
+                        <div className="text-xs text-gray-500 dark:text-gray-400">Quotation + CAD drawing</div>
+                      </div>
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
 
             {/* Save Changes */}
             {hasUnsavedChanges && (
@@ -428,24 +517,17 @@ export default function ProjectDetailPageSimplified({ params }: { params: Promis
       <div className="flex-1 overflow-hidden">
         <ChatLayout
           mapContent={
-            <div className="relative h-full">
+            <div id="project-map-container" className="relative h-full">
               <MapComponent
                 landBoundary={project.land_boundary?.coordinates || []}
                 polyhouses={project.polyhouses}
                 editMode={editMode}
-                onBoundaryChange={(boundary) => {
+                loading={false}
+                onBoundaryComplete={(boundary) => {
                   setHasUnsavedChanges(true);
                   // Update project boundary
                 }}
-                centerOnLoad={true}
               />
-
-              {/* Quotation Overlay */}
-              {showQuotation && (
-                <div className="absolute top-4 left-4 w-96 max-h-[80vh] overflow-auto">
-                  <QuotationPanel quotation={project.quotation} />
-                </div>
-              )}
             </div>
           }
           chatContent={
@@ -513,6 +595,11 @@ export default function ProjectDetailPageSimplified({ params }: { params: Promis
                     },
                     terrainAnalysis: project.terrain_analysis,
                   }}
+                  onLinkClick={(href) => {
+                    if (href === '#quotation') {
+                      setShowQuotationModal(true);
+                    }
+                  }}
                 />
               </div>
             </div>
@@ -521,6 +608,50 @@ export default function ProjectDetailPageSimplified({ params }: { params: Promis
           showToggle={false}
         />
       </div>
+
+      {/* Quotation Modal */}
+      {project && (
+        <QuotationModal
+          isOpen={showQuotationModal}
+          onClose={() => setShowQuotationModal(false)}
+          planningResult={{
+            success: true,
+            landArea: {
+              id: project.id,
+              name: project.name,
+              coordinates: project.land_boundary?.coordinates || [],
+              centroid: project.land_boundary?.coordinates?.[0] || { lat: 0, lng: 0 },
+              area: project.land_area_sqm,
+              createdAt: new Date(project.created_at),
+            },
+            polyhouses: project.polyhouses || [],
+            configuration: (project as any).configuration || {},
+            quotation: (project as any).quotation || {
+              id: project.id,
+              landAreaId: project.id,
+              polyhouses: project.polyhouses || [],
+              configuration: (project as any).configuration || {},
+              items: [],
+              totalCost: project.estimated_cost,
+              totalArea: project.total_coverage_sqm,
+              createdAt: new Date(project.created_at),
+            },
+            warnings: [],
+            errors: [],
+            metadata: {
+              numberOfPolyhouses: project.polyhouse_count,
+              totalPolyhouseArea: project.total_coverage_sqm,
+              totalLandArea: project.land_area_sqm,
+              utilizationPercentage: project.utilization_percentage,
+              computationTime: 0,
+              unbuildableRegions: [],
+              constraintViolations: [],
+            },
+            terrainAnalysis: project.terrain_analysis,
+            regulatoryCompliance: (project as any).regulatory_compliance,
+          }}
+        />
+      )}
     </div>
   );
 }

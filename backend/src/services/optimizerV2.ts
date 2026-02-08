@@ -64,7 +64,10 @@ export class PolyhouseOptimizerV2 {
   private readonly GABLE_MODULE = 8;     // 8m gable bay
   private readonly GUTTER_MODULE = 4;    // 4m gutter bay
   private readonly MAX_AREA = 10000;     // 10,000 sqm = 1 hectare
-  private readonly CORRIDOR_WIDTH = 2;   // 2m between polyhouses
+  private readonly CORRIDOR_WIDTH = 3;   // 3m between polyhouses for better access
+  private readonly TARGET_MIN_POLYHOUSES = 6;  // Minimum 6 polyhouses (like manual design)
+  private readonly TARGET_MAX_POLYHOUSES = 15; // Maximum 15 polyhouses
+  private readonly TARGET_COVERAGE = 65;       // Target 65% coverage (industry standard)
 
   constructor(landArea: LandArea, config: PolyhouseConfiguration, terrainData?: any) {
     this.config = config;
@@ -109,17 +112,19 @@ export class PolyhouseOptimizerV2 {
     // Generate candidate sizes (from large to small for cost efficiency)
     const allSizes = this.generateCandidateSizes();
 
-    // STRATEGY: Place polyhouses as LARGE AS POSSIBLE (up to 10k sqm limit)
-    // Training data shows polyhouses should fill the plot as much as possible
+    // STRATEGY: Place FEWER, LARGER polyhouses (like manual design with only 6-15 structures)
+    // Manual design shows 6 large polyhouses (~5000-6000 sqm each) is optimal
     const landArea = this.landArea.area;
-    const strategyName = "MAXIMUM SIZE (up to 10k sqm per polyhouse)";
+    const strategyName = "FEWER LARGE POLYHOUSES (6-15 structures, 5000-10000 sqm each)";
 
-    // Always start with the largest sizes (8000-10000 sqm) to maximize coverage
-    const minAreaForFirst = this.MAX_AREA * 0.7; // Start with 7000+ sqm polyhouses
+    // Use ONLY the largest sizes (5000-10000 sqm) for maximum cost efficiency
+    const minAreaForFirst = this.MAX_AREA * 0.5; // 5000+ sqm polyhouses only
     const largeSizes = allSizes.filter(s => s.area >= minAreaForFirst);
     const candidateSizes = largeSizes.length > 0 ? largeSizes : allSizes.slice(0, 10);
 
-    console.log(`\n📐 ${strategyName} STRATEGY for ${(landArea/10000).toFixed(1)} hectares: ${candidateSizes.length} sizes (${candidateSizes[0].gable}×${candidateSizes[0].gutter}=${candidateSizes[0].area}m² to ${candidateSizes[candidateSizes.length - 1].gable}×${candidateSizes[candidateSizes.length - 1].gutter}=${candidateSizes[candidateSizes.length - 1].area}m²)`);
+    console.log(`\n📐 ${strategyName} for ${(landArea/10000).toFixed(1)} hectares`);
+    console.log(`   Target: ${this.TARGET_MIN_POLYHOUSES}-${this.TARGET_MAX_POLYHOUSES} polyhouses @ ${this.TARGET_COVERAGE}% coverage`);
+    console.log(`   Using ${candidateSizes.length} large sizes: ${candidateSizes[0].gable}×${candidateSizes[0].gutter}=${candidateSizes[0].area}m² to ${candidateSizes[candidateSizes.length - 1].gable}×${candidateSizes[candidateSizes.length - 1].gutter}=${candidateSizes[candidateSizes.length - 1].area}m²`);
 
     // Use ULTRA FINE grid spacing to find more placement opportunities
     // For large polyhouses, we need to try many positions to find the sweet spot
@@ -163,10 +168,25 @@ export class PolyhouseOptimizerV2 {
     // Try to place polyhouses at each grid point
     let placedCount = 0;
     console.log('\n🏗️  Starting placement...');
-    console.log('🎯 Strategy: Test ALL angles to find the one with MAXIMUM utilization\n');
+    console.log('🎯 Strategy: Place 6-15 LARGE polyhouses only\n');
 
     for (let row = 0; row < rows; row++) {
       for (let col = 0; col < cols; col++) {
+        // Check if we've reached target
+        const currentCoverage = (polyhouses.reduce((sum, p) => sum + p.area, 0) / this.landArea.area) * 100;
+
+        // STOP if we've reached target coverage OR max polyhouse count
+        if (currentCoverage >= this.TARGET_COVERAGE || polyhouses.length >= this.TARGET_MAX_POLYHOUSES) {
+          console.log(`\n⛔ Stopping placement:`);
+          if (currentCoverage >= this.TARGET_COVERAGE) {
+            console.log(`   ✓ Reached target coverage: ${currentCoverage.toFixed(1)}%`);
+          }
+          if (polyhouses.length >= this.TARGET_MAX_POLYHOUSES) {
+            console.log(`   ✓ Reached max polyhouses: ${polyhouses.length}`);
+          }
+          break;
+        }
+
         const lat = minLat + row * latStep;
         const lng = minLng + col * lngStep;
         const position: Coordinate = { lat, lng };
@@ -212,32 +232,53 @@ export class PolyhouseOptimizerV2 {
         if (bestPolyhouse) {
           polyhouses.push(bestPolyhouse);
 
-          // Add to occupied areas with corridor buffer
+          // Add to occupied areas with corridor buffer (3m for better access)
           const buffered = this.createBufferedPolygon(bestPolyhouse, this.CORRIDOR_WIDTH);
           occupiedPolygons.push(buffered);
 
           placedCount++;
           const coverage = (polyhouses.reduce((sum, p) => sum + p.area, 0) / this.landArea.area) * 100;
-          console.log(`  ✓ Placed polyhouse #${placedCount}: ${bestPolyhouse.area.toFixed(0)}m² at ${bestPolyhouse.rotation}° (${coverage.toFixed(1)}% coverage)`);
-
-          // Don't stop! Continue placing more polyhouses until we reach high utilization
-          // This allows multiple large polyhouses instead of just one
+          console.log(`  ✓ Polyhouse #${placedCount}: ${bestPolyhouse.gableLength}×${bestPolyhouse.gutterWidth}m = ${bestPolyhouse.area.toFixed(0)}m² @ ${bestPolyhouse.rotation}° (coverage: ${coverage.toFixed(1)}%)`);
         }
+      }
+
+      // Break outer loop if we've reached targets
+      const currentCoverage = (polyhouses.reduce((sum, p) => sum + p.area, 0) / this.landArea.area) * 100;
+      if (currentCoverage >= this.TARGET_COVERAGE || polyhouses.length >= this.TARGET_MAX_POLYHOUSES) {
+        break;
       }
     }
 
-    // Check if we've already reached excellent utilization (80%+)
+    // Check if we've already reached target utilization
     let currentCoverage = (polyhouses.reduce((sum, p) => sum + p.area, 0) / this.landArea.area) * 100;
 
-    console.log(`\n📊 First pass complete: ${polyhouses.length} polyhouses, ${currentCoverage.toFixed(1)}% coverage`);
+    console.log(`\n📊 Placement complete: ${polyhouses.length} large polyhouses, ${currentCoverage.toFixed(1)}% coverage`);
 
-    if (currentCoverage >= 85) {
-      console.log(`✅ Excellent utilization (${currentCoverage.toFixed(1)}%) - stopping here`);
-      return polyhouses;
-    }
+    // SKIP SECOND AND THIRD PASSES - We want FEWER, LARGER polyhouses only!
+    // Manual design shows 6 large polyhouses is optimal for cost and maintenance
+    console.log(`\n✅ Strategy: FEWER LARGE POLYHOUSES (no gap-filling with small structures)`);
+    console.log(`   This reduces costs and simplifies construction/maintenance\n`);
 
-    // SECOND PASS: Fill remaining gaps if coverage < 85%
-    // Try ALL sizes again (large + medium) to maximize utilization
+    // Return immediately - NO second or third pass
+    const finalCoverage = (polyhouses.reduce((sum, p) => sum + p.area, 0) / this.landArea.area) * 100;
+    const elapsedTime = Date.now() - startTime;
+
+    console.log('=' + '='.repeat(50));
+    console.log(`✅ Optimization complete in ${elapsedTime}ms`);
+    console.log(`   Placed ${polyhouses.length} polyhouses (target: ${this.TARGET_MIN_POLYHOUSES}-${this.TARGET_MAX_POLYHOUSES})`);
+    console.log(`   Land utilization: ${finalCoverage.toFixed(1)}% (target: ${this.TARGET_COVERAGE}%)`);
+    console.log(`   Average polyhouse size: ${(polyhouses.reduce((sum, p) => sum + p.area, 0) / polyhouses.length).toFixed(0)} sqm`);
+    console.log(`   Total polyhouse area: ${polyhouses.reduce((sum, p) => sum + p.area, 0).toFixed(0)} sqm`);
+    console.log('=' + '='.repeat(50) + '\n');
+
+    // Assign sequential labels and colors
+    const labeledPolyhouses = assignLabelsAndColors(polyhouses);
+    console.log(`   Labels assigned: ${labeledPolyhouses.map(p => p.label).join(', ')}`);
+
+    return labeledPolyhouses;
+
+    // OLD CODE BELOW - DISABLED (second and third passes create too many small polyhouses)
+    /*
     if (currentCoverage < 85) {
       const minAreaForGapFill = minAreaForFirst * 0.4; // Lower threshold: 40% of max
       console.log(`\n🎯 SECOND PASS: Filling gaps with polyhouses ≥${minAreaForGapFill}m² (including large sizes)...`);
@@ -420,6 +461,7 @@ export class PolyhouseOptimizerV2 {
       }
     }
 
+    // OLD CODE - commented out (creates too many small polyhouses)
     const finalCoverage = (polyhouses.reduce((sum, p) => sum + p.area, 0) / this.landArea.area) * 100;
     const elapsedTime = Date.now() - startTime;
 
@@ -435,6 +477,7 @@ export class PolyhouseOptimizerV2 {
     console.log(`   Labels assigned: ${labeledPolyhouses.map(p => p.label).join(', ')}`);
 
     return labeledPolyhouses;
+    */
   }
 
   /**

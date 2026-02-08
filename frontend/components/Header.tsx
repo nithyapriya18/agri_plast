@@ -36,7 +36,6 @@ export default function Header() {
 
   const navigation = [
     { name: 'Dashboard', href: '/dashboard' },
-    { name: 'New Project', href: '/projects/new' },
     { name: 'Settings', href: '/settings' },
   ];
 
