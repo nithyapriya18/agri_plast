@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { ConversationMessage, PlanningResult } from '@shared/types';
-import { Send, Bot, User, ThumbsUp, ThumbsDown, ChevronDown, ChevronUp, RotateCcw, Brain, Settings } from 'lucide-react';
+import { Send, Bot, User, ThumbsUp, ThumbsDown, ChevronDown, ChevronUp, RotateCcw, Brain, Settings, Mic, MicOff, Paperclip, X } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 
 interface EnhancedMessage extends ConversationMessage {
@@ -24,6 +24,9 @@ interface EnhancedChatInterfaceProps {
   planningResult?: PlanningResult | null;
   onRestoreSnapshot?: (snapshot: PlanningResult) => void;
   onClose?: () => void;
+  onLinkClick?: (href: string) => void;
+  onFileUpload?: (file: File) => void;
+  isThinking?: boolean;
 }
 
 export default function EnhancedChatInterface({
@@ -32,15 +35,24 @@ export default function EnhancedChatInterface({
   planningResult,
   onRestoreSnapshot,
   onClose,
+  onLinkClick,
+  onFileUpload,
+  isThinking = false,
 }: EnhancedChatInterfaceProps) {
   const [inputMessage, setInputMessage] = useState('');
   const [sending, setSending] = useState(false);
   const [expandedMessages, setExpandedMessages] = useState<Set<string>>(new Set());
   const [expandedWorkflow, setExpandedWorkflow] = useState<Set<string>>(new Set());
   const [messageFeedback, setMessageFeedback] = useState<Map<string, 'up' | 'down' | null>>(new Map());
-  const [isTyping, setIsTyping] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [voiceError, setVoiceError] = useState<string | null>(null);
+  const [voiceSupported, setVoiceSupported] = useState(true);
+  const [uploadedFile, setUploadedFile] = useState<File | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const recognitionRef = useRef<any>(null);
 
   // Convert ConversationMessage to EnhancedMessage with IDs and snapshots
   const enhancedMessages: EnhancedMessage[] = conversationHistory.map((msg, index) => ({
@@ -62,18 +74,56 @@ export default function EnhancedChatInterface({
     }
   }, [inputMessage]);
 
+  // Initialize speech recognition
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+      if (SpeechRecognition) {
+        recognitionRef.current = new SpeechRecognition();
+        recognitionRef.current.continuous = false;
+        recognitionRef.current.interimResults = true;
+        recognitionRef.current.lang = 'en-US';
+
+        recognitionRef.current.onresult = (event: any) => {
+          const transcript = Array.from(event.results)
+            .map((result: any) => result[0])
+            .map((result: any) => result.transcript)
+            .join('');
+
+          setInputMessage(transcript);
+        };
+
+        recognitionRef.current.onerror = (event: any) => {
+          console.error('Speech recognition error:', event.error);
+          setVoiceError(`Voice recognition error: ${event.error}`);
+          setIsRecording(false);
+        };
+
+        recognitionRef.current.onend = () => {
+          setIsRecording(false);
+        };
+      } else {
+        setVoiceSupported(false);
+      }
+    }
+
+    return () => {
+      if (recognitionRef.current) {
+        recognitionRef.current.stop();
+      }
+    };
+  }, []);
+
   const handleSend = async () => {
     if (!inputMessage.trim() || sending) return;
 
     setSending(true);
-    setIsTyping(true);
     setInputMessage('');
 
     try {
       await onSendMessage(inputMessage);
     } finally {
       setSending(false);
-      setIsTyping(false);
     }
   };
 
@@ -81,6 +131,83 @@ export default function EnhancedChatInterface({
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSend();
+    }
+  };
+
+  const startVoiceRecording = () => {
+    if (!voiceSupported) {
+      setVoiceError('Voice recognition is not supported in your browser. Please use Chrome, Edge, or Safari.');
+      return;
+    }
+
+    if (!recognitionRef.current) {
+      setVoiceError('Voice recognition not initialized.');
+      return;
+    }
+
+    try {
+      setVoiceError(null);
+      setIsRecording(true);
+      recognitionRef.current.start();
+    } catch (error) {
+      console.error('Error starting voice recognition:', error);
+      setVoiceError('Failed to start voice recognition.');
+      setIsRecording(false);
+    }
+  };
+
+  const stopVoiceRecording = () => {
+    if (recognitionRef.current && isRecording) {
+      recognitionRef.current.stop();
+      setIsRecording(false);
+    }
+  };
+
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file && !sending) {
+      // Pass file to parent for processing
+      if (onFileUpload) {
+        onFileUpload(file);
+        // Clean up file input
+        if (fileInputRef.current) {
+          fileInputRef.current.value = '';
+        }
+      }
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+  };
+
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file && !sending) {
+      // Pass file to parent for processing
+      if (onFileUpload) {
+        onFileUpload(file);
+        // Clean up file input
+        if (fileInputRef.current) {
+          fileInputRef.current.value = '';
+        }
+      }
+    }
+  };
+
+  const removeFile = () => {
+    setUploadedFile(null);
+    setInputMessage('');
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
     }
   };
 
@@ -138,7 +265,7 @@ export default function EnhancedChatInterface({
             <div>
               <h2 className="text-lg font-bold tracking-tight">AI Assistant</h2>
               <p className="text-xs text-green-50 mt-0.5 font-medium">
-                {isTyping ? 'Thinking...' : 'Ready to help'}
+                {isThinking ? 'Thinking...' : 'Ready to help'}
               </p>
             </div>
           </div>
@@ -167,7 +294,7 @@ export default function EnhancedChatInterface({
               <div className="rounded-2xl p-4 shadow-md bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700">
                 <div className="prose prose-sm max-w-none prose-gray dark:prose-invert">
                   <p className="text-sm mb-3">
-                    👋 Hi! I'm your AI planning assistant. I can help you with:
+                    Hi! I'm your AI planning assistant. I can help you with:
                   </p>
                   <ul className="text-sm space-y-1 mb-3">
                     <li>Adjusting polyhouse placement and configuration</li>
@@ -177,7 +304,7 @@ export default function EnhancedChatInterface({
                   </ul>
                   <div className="mt-4 p-3 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-800">
                     <p className="text-sm text-green-800 dark:text-green-200 font-medium">
-                      💡 Your detailed quotation is available! Click on <span className="font-bold">"Show Quotation"</span> button at the top to view pricing and materials.
+                      Your detailed quotation is available! Click on <span className="font-bold">"Show Quotation"</span> button at the top to view pricing and materials.
                     </p>
                   </div>
                 </div>
@@ -231,7 +358,27 @@ export default function EnhancedChatInterface({
                   <div className={`${isAssistant ? 'text-gray-800 dark:text-gray-200' : 'text-white'}`}>
                     {isAssistant ? (
                       <div className="text-sm leading-relaxed prose prose-sm max-w-none dark:prose-invert">
-                        <ReactMarkdown>{message.content}</ReactMarkdown>
+                        <ReactMarkdown
+                          components={{
+                            a: ({ node, href, children, ...props }) => (
+                              <a
+                                href={href}
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  if (onLinkClick && href) {
+                                    onLinkClick(href);
+                                  }
+                                }}
+                                className="text-agriplast-green-600 dark:text-agriplast-green-400 hover:underline cursor-pointer font-medium"
+                                {...props}
+                              >
+                                {children}
+                              </a>
+                            ),
+                          }}
+                        >
+                          {message.content}
+                        </ReactMarkdown>
                       </div>
                     ) : (
                       <p className="text-sm leading-relaxed whitespace-pre-wrap">{message.content}</p>
@@ -349,11 +496,54 @@ export default function EnhancedChatInterface({
           );
         })}
 
+        {/* Thinking indicator */}
+        {isThinking && (
+          <div className="flex gap-3 justify-start animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <div className="flex-shrink-0 w-8 h-8 rounded-full bg-agriplast-green-100 dark:bg-agriplast-green-900 flex items-center justify-center">
+              <Bot className="w-4 h-4 text-agriplast-green-700 dark:text-agriplast-green-300" />
+            </div>
+            <div className="max-w-[85%] flex flex-col items-start">
+              <div className="rounded-2xl p-4 shadow-md bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700">
+                <div className="flex items-center gap-2">
+                  <div className="flex gap-1">
+                    <div className="w-2 h-2 bg-agriplast-green-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
+                    <div className="w-2 h-2 bg-agriplast-green-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
+                    <div className="w-2 h-2 bg-agriplast-green-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+                  </div>
+                  <span className="text-sm text-gray-600 dark:text-gray-400">Analyzing your request...</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         <div ref={messagesEndRef} />
       </div>
 
       {/* Input */}
       <div className="border-t border-gray-200 dark:border-gray-700 p-4 bg-white dark:bg-gray-800 shadow-2xl">
+        {voiceError && (
+          <div className="mb-2 p-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-xs text-red-600 dark:text-red-400">
+            {voiceError}
+          </div>
+        )}
+
+        {/* File upload preview */}
+        {uploadedFile && (
+          <div className="mb-2 p-2 bg-agriplast-green-50 dark:bg-agriplast-green-900/20 border border-agriplast-green-200 dark:border-agriplast-green-800 rounded-lg flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Paperclip className="w-4 h-4 text-agriplast-green-600 dark:text-agriplast-green-400" />
+              <span className="text-sm text-agriplast-green-800 dark:text-agriplast-green-200">{uploadedFile.name}</span>
+            </div>
+            <button
+              onClick={removeFile}
+              className="p-1 hover:bg-agriplast-green-100 dark:hover:bg-agriplast-green-900/40 rounded transition-colors"
+            >
+              <X className="w-4 h-4 text-agriplast-green-600 dark:text-agriplast-green-400" />
+            </button>
+          </div>
+        )}
+
         <div className="flex gap-2">
           <div className="flex-1 relative">
             <textarea
@@ -361,12 +551,54 @@ export default function EnhancedChatInterface({
               value={inputMessage}
               onChange={(e) => setInputMessage(e.target.value)}
               onKeyPress={handleKeyPress}
-              placeholder="Ask anything about your plan..."
-              disabled={sending}
-              className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-xl focus:outline-none focus:ring-2 focus:ring-agriplast-green-500 focus:border-transparent disabled:bg-gray-100 dark:disabled:bg-gray-700 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 transition-all duration-200 placeholder:text-gray-400 dark:placeholder:text-gray-500 resize-none text-sm overflow-hidden"
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+              placeholder={isRecording ? "Listening..." : isDragging ? "Drop file here..." : "Ask anything about your plan..."}
+              disabled={sending || isRecording}
+              className={`w-full px-4 py-3 border rounded-xl focus:outline-none focus:ring-2 focus:ring-agriplast-green-500 focus:border-transparent disabled:bg-gray-100 dark:disabled:bg-gray-700 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 transition-all duration-200 placeholder:text-gray-400 dark:placeholder:text-gray-500 resize-none text-sm overflow-hidden ${
+                isDragging ? 'border-agriplast-green-500 border-2 bg-agriplast-green-50 dark:bg-agriplast-green-900/20' : 'border-gray-300 dark:border-gray-600'
+              }`}
               style={{ minHeight: '44px', maxHeight: '120px' }}
             />
           </div>
+
+          {/* Hidden file input */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".kml,.kmz"
+            onChange={handleFileSelect}
+            className="hidden"
+          />
+
+          {/* File upload button */}
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={sending}
+            className="px-4 h-[44px] bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 rounded-xl disabled:cursor-not-allowed transition-all duration-200 flex items-center justify-center shadow-md hover:shadow-lg active:scale-95"
+            title="Upload KML file"
+          >
+            <Paperclip className="w-5 h-5" />
+          </button>
+          {voiceSupported && (
+            <button
+              onClick={isRecording ? stopVoiceRecording : startVoiceRecording}
+              disabled={sending}
+              className={`px-4 h-[44px] rounded-xl disabled:cursor-not-allowed transition-all duration-200 flex items-center justify-center shadow-md hover:shadow-lg active:scale-95 ${
+                isRecording
+                  ? 'bg-red-600 hover:bg-red-700 text-white animate-pulse'
+                  : 'bg-blue-600 hover:bg-blue-700 text-white'
+              }`}
+              title={isRecording ? 'Stop recording' : 'Start voice input'}
+            >
+              {isRecording ? (
+                <MicOff className="w-5 h-5" />
+              ) : (
+                <Mic className="w-5 h-5" />
+              )}
+            </button>
+          )}
           <button
             onClick={handleSend}
             disabled={!inputMessage.trim() || sending}
@@ -378,11 +610,6 @@ export default function EnhancedChatInterface({
               <Send className="w-5 h-5" />
             )}
           </button>
-        </div>
-        <div className="mt-2">
-          <p className="text-xs text-gray-500 dark:text-gray-400">
-            💡 Try: "Maximize space" or "Use cheaper materials"
-          </p>
         </div>
       </div>
     </div>

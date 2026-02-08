@@ -53,10 +53,13 @@ export default function ProjectDetailPageSimplified({ params }: { params: Promis
   const [showQuotationModal, setShowQuotationModal] = useState(false);
   const [showDSL, setShowDSL] = useState(false);
   const [editMode, setEditMode] = useState(false);
+  const [showCommitModal, setShowCommitModal] = useState(false);
+  const [commitNote, setCommitNote] = useState('');
 
   // Chat state
   const [conversationHistory, setConversationHistory] = useState<ConversationMessage[]>([]);
   const [planningResultId, setPlanningResultId] = useState<string | null>(null);
+  const [isChatThinking, setIsChatThinking] = useState(false);
 
   // Modification state
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
@@ -255,6 +258,7 @@ export default function ProjectDetailPageSimplified({ params }: { params: Promis
     };
 
     setConversationHistory(prev => [...prev, userMessage]);
+    setIsChatThinking(true);
 
     try {
       // Build planning result from project data
@@ -319,9 +323,24 @@ export default function ProjectDetailPageSimplified({ params }: { params: Promis
 
       setConversationHistory(prev => [...prev, assistantMessage]);
 
-      // If layout was updated, mark as unsaved
+      // If layout was updated, mark as unsaved and generate commit note
       if (data.updatedPlanningResult) {
         setHasUnsavedChanges(true);
+
+        // Generate auto-filled commit note based on changes
+        const oldCount = project.polyhouse_count;
+        const newCount = data.updatedPlanningResult.polyhouses.length;
+        const oldUtil = project.utilization_percentage;
+        const newUtil = data.updatedPlanningResult.metadata.utilizationPercentage;
+
+        let autoNote = 'Modified polyhouse layout via chat';
+        if (newCount !== oldCount) {
+          autoNote = `Changed polyhouse count from ${oldCount} to ${newCount}`;
+        } else if (Math.abs(newUtil - oldUtil) > 1) {
+          autoNote = `Adjusted layout - utilization changed from ${oldUtil.toFixed(1)}% to ${newUtil.toFixed(1)}%`;
+        }
+        setCommitNote(autoNote);
+
         // Update project with new planning result
         setProject(prev => prev ? {
           ...prev,
@@ -348,24 +367,36 @@ export default function ProjectDetailPageSimplified({ params }: { params: Promis
         timestamp: new Date(),
       };
       setConversationHistory(prev => [...prev, errorMessage]);
+    } finally {
+      setIsChatThinking(false);
     }
   };
 
-  const handleSaveChanges = async () => {
+  const handleSaveChanges = () => {
     if (!project || !hasUnsavedChanges) return;
+    setShowCommitModal(true);
+  };
+
+  const handleConfirmSave = async () => {
+    if (!project || !commitNote.trim()) return;
 
     setSaving(true);
+    setShowCommitModal(false);
 
     try {
       const supabase = createClient();
+
+      // Get actual authenticated user
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('User not authenticated');
 
       // Create new version
       const { data, error } = await supabase
         .from('projects')
         .insert({
-          user_id: project.id, // Will be updated with actual user_id
+          user_id: user.id,
           name: project.name,
-          description: `${project.description} (Modified)`,
+          description: commitNote.trim(),
           parent_project_id: project.id,
           land_boundary: project.land_boundary,
           land_area_sqm: project.land_area_sqm,
@@ -378,6 +409,7 @@ export default function ProjectDetailPageSimplified({ params }: { params: Promis
           quotation: project.quotation,
           status: 'draft',
           is_latest: true,
+          terrain_analysis: project.terrain_analysis,
         })
         .select()
         .single();
@@ -390,12 +422,11 @@ export default function ProjectDetailPageSimplified({ params }: { params: Promis
         .update({ is_latest: false })
         .eq('id', project.id);
 
-      alert('Changes saved as new version!');
       setHasUnsavedChanges(false);
       router.push(`/projects/${data.id}`);
     } catch (error) {
       console.error('Error saving changes:', error);
-      alert('Failed to save changes');
+      alert('Failed to save changes: ' + (error as Error).message);
     } finally {
       setSaving(false);
     }
@@ -644,6 +675,7 @@ export default function ProjectDetailPageSimplified({ params }: { params: Promis
                 <EnhancedChatInterface
                   conversationHistory={conversationHistory}
                   onSendMessage={handleSendMessage}
+                  isThinking={isChatThinking}
                   planningResult={{
                     success: true,
                     landArea: {
@@ -726,6 +758,53 @@ export default function ProjectDetailPageSimplified({ params }: { params: Promis
             regulatoryCompliance: (project as any).regulatory_compliance,
           }}
         />
+      )}
+
+      {/* Commit Note Modal */}
+      {showCommitModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-md w-full p-6">
+            <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-2">
+              Save Version
+            </h3>
+            <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+              Add a note to describe the changes made in this version
+            </p>
+            <textarea
+              value={commitNote}
+              onChange={(e) => setCommitNote(e.target.value)}
+              placeholder="e.g., Increased polyhouse count to maximize coverage"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-agriplast-green-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white resize-none"
+              rows={3}
+              autoFocus
+            />
+            <div className="mt-4 flex gap-2 justify-end">
+              <button
+                onClick={() => setShowCommitModal(false)}
+                className="px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmSave}
+                disabled={!commitNote.trim() || saving}
+                className="px-4 py-2 text-sm bg-agriplast-green-600 hover:bg-agriplast-green-700 text-white rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+              >
+                {saving ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Saving...</span>
+                  </>
+                ) : (
+                  <>
+                    <Save className="w-4 h-4" />
+                    <span>Save Version</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
