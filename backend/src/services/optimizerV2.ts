@@ -147,8 +147,9 @@ export class PolyhouseOptimizerV2 {
 
     // Determine orientations based on strategy
     let orientations = this.getOrientations();
-    // Mixed orientations no longer supported - using orientation strategy
-    const allowMixedOrientations = false;
+    // Enable mixed orientations for better space utilization in slanting/irregular areas
+    // This allows "stepped" placement following land contours (like manual design)
+    const allowMixedOrientations = true;
 
     if (!allowMixedOrientations) {
       // Uniform orientation: Find best single orientation for all polyhouses
@@ -157,9 +158,11 @@ export class PolyhouseOptimizerV2 {
       orientations = [this.findBestGlobalOrientation(landPolygon, candidateSizes, orientations)];
       console.log(`   Using uniform orientation: ${orientations[0]}° (better for access roads & infrastructure)`);
     } else {
-      // Mixed orientations: Each polyhouse can rotate independently
-      console.log(`Testing ${orientations.length} orientations per position:`, orientations.map(o => `${o}°`).join(', '));
-      console.log('   (Mixed orientations mode: maximizes space, may affect road layout)');
+      // Mixed orientations: Each polyhouse can rotate independently to follow land contours
+      // This enables "stepped" placement in slanting areas for maximum space utilization
+      console.log(`🔄 Using MIXED ORIENTATIONS strategy (stepped placement in slanting areas)`);
+      console.log(`   Testing ${orientations.length} angles per position:`, orientations.map(o => `${o}°`).join(', '));
+      console.log('   This maximizes space utilization by following land contours');
     }
 
     // Track occupied areas

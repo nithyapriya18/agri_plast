@@ -3,9 +3,9 @@ import { Polyhouse, Coordinate } from '@shared/types';
 
 export interface TechnicalDrawingData {
   projectName: string;
-  customerName: string;
+  customerName?: string;
   locationName: string;
-  landBoundary: Coordinate[];
+  landBoundary?: Coordinate[];
   landAreaSqm: number;
   polyhouses: Polyhouse[];
   polyhouseCount: number;
@@ -20,9 +20,6 @@ export interface TechnicalDrawingData {
  */
 export async function generateTechnicalDrawing(data: TechnicalDrawingData): Promise<Blob> {
   // Validate input data
-  if (!data.landBoundary || data.landBoundary.length === 0) {
-    throw new Error('Land boundary is required for technical drawing');
-  }
   if (!data.polyhouses || data.polyhouses.length === 0) {
     throw new Error('At least one polyhouse is required for technical drawing');
   }
@@ -74,13 +71,32 @@ function drawMainLayout(
   pdf.setLineWidth(0.5);
   pdf.rect(startX, startY, width, height);
 
-  // Calculate bounds of land boundary
-  const lats = data.landBoundary.map(c => c.lat);
-  const lngs = data.landBoundary.map(c => c.lng);
-  const minLat = Math.min(...lats);
-  const maxLat = Math.max(...lats);
-  const minLng = Math.min(...lngs);
-  const maxLng = Math.max(...lngs);
+  // Calculate bounds of land boundary or polyhouses
+  let minLat, maxLat, minLng, maxLng;
+
+  if (data.landBoundary && data.landBoundary.length > 0) {
+    const lats = data.landBoundary.map(c => c.lat);
+    const lngs = data.landBoundary.map(c => c.lng);
+    minLat = Math.min(...lats);
+    maxLat = Math.max(...lats);
+    minLng = Math.min(...lngs);
+    maxLng = Math.max(...lngs);
+  } else {
+    // Use polyhouse centers to determine bounds
+    const centers = data.polyhouses.map(p => p.center);
+    minLat = Math.min(...centers.map(c => c.lat));
+    maxLat = Math.max(...centers.map(c => c.lat));
+    minLng = Math.min(...centers.map(c => c.lng));
+    maxLng = Math.max(...centers.map(c => c.lng));
+
+    // Add buffer around polyhouses
+    const latRange = maxLat - minLat;
+    const lngRange = maxLng - minLng;
+    minLat -= latRange * 0.2;
+    maxLat += latRange * 0.2;
+    minLng -= lngRange * 0.2;
+    maxLng += lngRange * 0.2;
+  }
 
   const latRange = maxLat - minLat;
   const lngRange = maxLng - minLng;
@@ -102,29 +118,70 @@ function drawMainLayout(
     y: startY + height - centerOffsetY - ((coord.lat - minLat) * scale), // Flip Y axis
   });
 
-  // Draw land boundary (pink/magenta outline)
-  pdf.setDrawColor(255, 0, 128);
-  pdf.setLineWidth(0.8);
-  const boundaryPoints = data.landBoundary.map(toPdfCoords);
-  pdf.lines(
-    boundaryPoints.slice(1).map((p, i) => [p.x - boundaryPoints[i].x, p.y - boundaryPoints[i].y]),
-    boundaryPoints[0].x,
-    boundaryPoints[0].y,
-    [1, 1],
-    'S',
-    true
-  );
+  // Draw land boundary (pink/magenta outline) if available
+  if (data.landBoundary && data.landBoundary.length > 0) {
+    pdf.setDrawColor(255, 0, 128);
+    pdf.setLineWidth(0.8);
+    const boundaryPoints = data.landBoundary.map(toPdfCoords);
+    pdf.lines(
+      boundaryPoints.slice(1).map((p, i) => [p.x - boundaryPoints[i].x, p.y - boundaryPoints[i].y]),
+      boundaryPoints[0].x,
+      boundaryPoints[0].y,
+      [1, 1],
+      'S',
+      true
+    );
+  }
+
+  // Helper function to generate rectangle corners from center, dimensions, and rotation
+  const generateRectangleCorners = (
+    center: Coordinate,
+    length: number,
+    width: number,
+    rotation: number
+  ): Coordinate[] => {
+    const metersPerDegreeLat = 111000;
+    const metersPerDegreeLng = 111000 * Math.cos((center.lat * Math.PI) / 180);
+
+    const halfLength = length / 2;
+    const halfWidth = width / 2;
+    const rotRad = (rotation * Math.PI) / 180;
+    const cosRot = Math.cos(rotRad);
+    const sinRot = Math.sin(rotRad);
+
+    const corners = [
+      { x: -halfLength, y: -halfWidth },
+      { x: halfLength, y: -halfWidth },
+      { x: halfLength, y: halfWidth },
+      { x: -halfLength, y: halfWidth },
+    ];
+
+    return corners.map(corner => {
+      const rotatedX = corner.x * cosRot - corner.y * sinRot;
+      const rotatedY = corner.x * sinRot + corner.y * cosRot;
+      return {
+        lat: center.lat + rotatedY / metersPerDegreeLat,
+        lng: center.lng + rotatedX / metersPerDegreeLng,
+      };
+    });
+  };
 
   // Draw each polyhouse
   data.polyhouses.forEach((polyhouse, index) => {
-    if (!polyhouse.bounds || polyhouse.bounds.length === 0) return;
+    // Generate polyhouse corners from center, dimensions, and rotation
+    const polyhouseCorners = generateRectangleCorners(
+      polyhouse.center,
+      polyhouse.gableLength || polyhouse.dimensions?.length || 0,
+      polyhouse.gutterWidth || polyhouse.dimensions?.width || 0,
+      polyhouse.rotation || 0
+    );
 
     // Draw gutter outline (light green)
     pdf.setFillColor(200, 255, 200);
     pdf.setDrawColor(0, 128, 0);
     pdf.setLineWidth(0.3);
 
-    const gutterPoints = polyhouse.bounds.map(p => toPdfCoords({ lat: p.y, lng: p.x }));
+    const gutterPoints = polyhouseCorners.map(toPdfCoords);
     pdf.lines(
       gutterPoints.slice(1).map((p, i) => [p.x - gutterPoints[i].x, p.y - gutterPoints[i].y]),
       gutterPoints[0].x,
@@ -134,17 +191,50 @@ function drawMainLayout(
       true
     );
 
-    // Draw blocks (grid pattern)
-    if (polyhouse.blocks && polyhouse.blocks.length > 0) {
-      polyhouse.blocks.forEach((block) => {
-        if (!block.corners || block.corners.length === 0) return;
+    // Draw blocks (grid pattern) - generate programmatically
+    const BLOCK_WIDTH = 8; // 8 meters
+    const BLOCK_HEIGHT = 4; // 4 meters
+    const gableLength = polyhouse.gableLength || polyhouse.dimensions?.length || 0;
+    const gutterWidth = polyhouse.gutterWidth || polyhouse.dimensions?.width || 0;
 
-        // Draw block fill (brown/red grid pattern)
-        pdf.setFillColor(160, 82, 45);
+    const numBlocksX = Math.floor(gableLength / BLOCK_WIDTH);
+    const numBlocksY = Math.floor(gutterWidth / BLOCK_HEIGHT);
+
+    const metersPerDegreeLat = 111000;
+    const metersPerDegreeLng = 111000 * Math.cos((polyhouse.center.lat * Math.PI) / 180);
+    const rotRad = ((polyhouse.rotation || 0) * Math.PI) / 180;
+    const cosRot = Math.cos(rotRad);
+    const sinRot = Math.sin(rotRad);
+
+    const startX = -gableLength / 2;
+    const startY = -gutterWidth / 2;
+
+    for (let row = 0; row < numBlocksY; row++) {
+      for (let col = 0; col < numBlocksX; col++) {
+        const localX = startX + col * BLOCK_WIDTH + BLOCK_WIDTH / 2;
+        const localY = startY + row * BLOCK_HEIGHT + BLOCK_HEIGHT / 2;
+
+        const rotatedX = localX * cosRot - localY * sinRot;
+        const rotatedY = localX * sinRot + localY * cosRot;
+
+        const blockCenter: Coordinate = {
+          lat: polyhouse.center.lat + rotatedY / metersPerDegreeLat,
+          lng: polyhouse.center.lng + rotatedX / metersPerDegreeLng,
+        };
+
+        const blockCorners = generateRectangleCorners(
+          blockCenter,
+          BLOCK_WIDTH,
+          BLOCK_HEIGHT,
+          polyhouse.rotation || 0
+        );
+
+        // Draw block fill (brown/tan color)
+        pdf.setFillColor(210, 180, 140);
         pdf.setDrawColor(139, 69, 19);
-        pdf.setLineWidth(0.1);
+        pdf.setLineWidth(0.2);
 
-        const blockPoints = block.corners.map(c => toPdfCoords({ lat: c.y, lng: c.x }));
+        const blockPoints = blockCorners.map(toPdfCoords);
         pdf.lines(
           blockPoints.slice(1).map((p, i) => [p.x - blockPoints[i].x, p.y - blockPoints[i].y]),
           blockPoints[0].x,
@@ -153,68 +243,21 @@ function drawMainLayout(
           'FD',
           true
         );
-
-        // Draw grid lines inside block (8x4 grid pattern)
-        const gridRows = 8;
-        const gridCols = 4;
-
-        // Draw uniform grid aligned with block edges
-        pdf.setDrawColor(255, 255, 255);
-        pdf.setLineWidth(0.4); // Make grid lines more visible
-
-        // Assume blockPoints has 4 corners in order: [0]=top-left, [1]=top-right, [2]=bottom-right, [3]=bottom-left
-        // Or it could be in any rotation, so we need to find the correct pairs
-        if (blockPoints.length === 4) {
-          // Find the two pairs of opposite edges
-          // Use first and third point as one pair, second and fourth as another
-          const p0 = blockPoints[0];
-          const p1 = blockPoints[1];
-          const p2 = blockPoints[2];
-          const p3 = blockPoints[3];
-
-          // Draw horizontal grid lines (interpolate between left and right edges)
-          for (let i = 1; i < gridRows; i++) {
-            const t = i / gridRows;
-            // Interpolate along left edge (p0 to p3)
-            const leftX = p0.x + (p3.x - p0.x) * t;
-            const leftY = p0.y + (p3.y - p0.y) * t;
-            // Interpolate along right edge (p1 to p2)
-            const rightX = p1.x + (p2.x - p1.x) * t;
-            const rightY = p1.y + (p2.y - p1.y) * t;
-            // Draw line between these points
-            pdf.line(leftX, leftY, rightX, rightY);
-          }
-
-          // Draw vertical grid lines (interpolate between top and bottom edges)
-          for (let i = 1; i < gridCols; i++) {
-            const t = i / gridCols;
-            // Interpolate along top edge (p0 to p1)
-            const topX = p0.x + (p1.x - p0.x) * t;
-            const topY = p0.y + (p1.y - p0.y) * t;
-            // Interpolate along bottom edge (p3 to p2)
-            const bottomX = p3.x + (p2.x - p3.x) * t;
-            const bottomY = p3.y + (p2.y - p3.y) * t;
-            // Draw line between these points
-            pdf.line(topX, topY, bottomX, bottomY);
-          }
-        }
-      });
+      }
     }
 
     // Add structure label
     const centerX = gutterPoints.reduce((sum, p) => sum + p.x, 0) / gutterPoints.length;
     const centerY = gutterPoints.reduce((sum, p) => sum + p.y, 0) / gutterPoints.length;
 
-    pdf.setFontSize(8);
-    pdf.setFont('helvetica', 'bold');
-    pdf.setTextColor(0, 0, 255); // Blue text
-    pdf.text(`STRUCTURE-${String(index + 1).padStart(2, '0')}`, centerX, centerY, { align: 'center' });
-
-    // Add dimensions (width x height in meters)
-    const dimText = `${Math.round(polyhouse.dimensions.length)}x${Math.round(polyhouse.dimensions.width)}`;
-    pdf.setFontSize(6);
-    pdf.setTextColor(0, 0, 0);
-    pdf.text(dimText, centerX, centerY + 3, { align: 'center' });
+    // Only add label if it won't overlap with bottom elements (keep 60mm clearance from bottom)
+    const pageHeight = pdf.internal.pageSize.getHeight();
+    if (centerY < pageHeight - 60) {
+      pdf.setFontSize(10); // Larger font like manual design
+      pdf.setFont('helvetica', 'bold');
+      pdf.setTextColor(0, 0, 255); // Blue text
+      pdf.text(`STRUCTURE-${String(index + 1).padStart(2, '0')}`, centerX, centerY, { align: 'center' });
+    }
   });
 
   // Add "ROAD" markers if applicable (top of drawing)
@@ -281,7 +324,9 @@ function drawLegendBox(
   // Structure areas
   data.polyhouses.forEach((polyhouse, index) => {
     const area = Math.round(polyhouse.area);
-    const dimText = `${Math.round(polyhouse.dimensions.length)}x${Math.round(polyhouse.dimensions.width)}`;
+    const dimLength = Math.round(polyhouse.gableLength || polyhouse.dimensions?.length || 0);
+    const dimWidth = Math.round(polyhouse.gutterWidth || polyhouse.dimensions?.width || 0);
+    const dimText = `${dimLength}x${dimWidth}`;
     pdf.text(
       `STRUCTURE-${String(index + 1).padStart(2, '0')} AREA:`,
       startX + 3,
@@ -357,7 +402,7 @@ function drawTitleBlock(
   pdf.setFont('helvetica', 'bold');
   pdf.text('Customer:', startX + 2, startY + 5);
   pdf.setFont('helvetica', 'normal');
-  pdf.text(data.customerName, startX + 20, startY + 5);
+  pdf.text(data.customerName || 'N/A', startX + 20, startY + 5);
 
   // Location
   pdf.setFont('helvetica', 'bold');
@@ -420,7 +465,7 @@ function drawBranding(pdf: jsPDF, x: number, y: number) {
  */
 export async function generateProjectReports(data: TechnicalDrawingData & { quotation: any }): Promise<void> {
   try {
-    console.log('📐 Generating technical drawing...');
+    console.log('Generating technical drawing...');
 
     // Generate technical drawing
     const technicalDrawingBlob = await generateTechnicalDrawing(data);
@@ -445,7 +490,7 @@ export async function generateProjectReports(data: TechnicalDrawingData & { quot
     // Wait a moment before generating second file
     await new Promise(resolve => setTimeout(resolve, 800));
 
-    console.log('📄 Generating quotation PDF...');
+    console.log('Generating quotation PDF...');
 
     // Import and generate quotation
     const { generateProjectPDF } = await import('./pdfExport');
@@ -462,9 +507,9 @@ export async function generateProjectReports(data: TechnicalDrawingData & { quot
       createdAt: data.createdAt,
     });
 
-    console.log('✓ Both PDFs generated successfully');
+    console.log('Both PDFs generated successfully');
   } catch (error) {
-    console.error('❌ Error generating project reports:', error);
+    console.error('Error generating project reports:', error);
     throw error;
   }
 }

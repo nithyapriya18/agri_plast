@@ -9,7 +9,7 @@ import QuotationModal from '@/components/QuotationModal';
 import EnhancedChatInterface from '@/components/EnhancedChatInterface';
 import DSLViewer, { DSLQuickActions } from '@/components/DSLViewer';
 import { createClient } from '@/lib/supabase/client';
-import { Loader2, Download, Save, Edit3, Trash2, ChevronDown } from 'lucide-react';
+import { Loader2, Download, Save, Edit3, Trash2 } from 'lucide-react';
 
 const MapComponent = dynamic(() => import('@/components/MapComponent'), {
   ssr: false,
@@ -53,7 +53,6 @@ export default function ProjectDetailPageSimplified({ params }: { params: Promis
   const [showQuotationModal, setShowQuotationModal] = useState(false);
   const [showDSL, setShowDSL] = useState(false);
   const [editMode, setEditMode] = useState(false);
-  const [showExportMenu, setShowExportMenu] = useState(false);
 
   // Chat state
   const [conversationHistory, setConversationHistory] = useState<ConversationMessage[]>([]);
@@ -87,12 +86,74 @@ export default function ProjectDetailPageSimplified({ params }: { params: Promis
 
       setProject(data);
       setPlanningResultId(data.id);
+
+      // Load planning result into backend memory for chat functionality
+      await loadPlanningResultIntoMemory(data);
     } catch (error) {
       console.error('Error loading project:', error);
       alert('Failed to load project');
       router.push('/dashboard');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadPlanningResultIntoMemory = async (projectData: any) => {
+    try {
+      // Reconstruct planning result from project data
+      const planningResult = {
+        success: true,
+        landArea: {
+          id: projectData.id,
+          name: projectData.name,
+          coordinates: projectData.land_boundary?.coordinates || [],
+          centroid: projectData.land_boundary?.coordinates?.[0] || { lat: 0, lng: 0 },
+          area: projectData.land_area_sqm,
+          createdAt: new Date(projectData.created_at),
+        },
+        polyhouses: projectData.polyhouses || [],
+        configuration: projectData.configuration || {},
+        quotation: projectData.quotation || {
+          id: projectData.id,
+          landAreaId: projectData.id,
+          polyhouses: projectData.polyhouses || [],
+          configuration: projectData.configuration || {},
+          items: [],
+          totalCost: projectData.estimated_cost,
+          totalArea: projectData.total_coverage_sqm,
+          createdAt: new Date(projectData.created_at),
+        },
+        warnings: [],
+        errors: [],
+        metadata: {
+          numberOfPolyhouses: projectData.polyhouse_count,
+          totalPolyhouseArea: projectData.total_coverage_sqm,
+          totalLandArea: projectData.land_area_sqm,
+          utilizationPercentage: projectData.utilization_percentage,
+          computationTime: 0,
+          unbuildableRegions: [],
+          constraintViolations: [],
+        },
+        terrainAnalysis: projectData.terrain_analysis,
+        regulatoryCompliance: (projectData as any).regulatory_compliance,
+      };
+
+      // Send to backend to load into memory
+      const response = await fetch('/api/planning/load-into-memory', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          planningResultId: projectData.id,
+          planningResult,
+        }),
+      });
+
+      if (!response.ok) {
+        console.warn('Failed to load planning result into backend memory');
+      }
+    } catch (error) {
+      console.error('Error loading planning result into memory:', error);
+      // Non-blocking error - chat might not work but rest of app will
     }
   };
 
@@ -282,8 +343,6 @@ export default function ProjectDetailPageSimplified({ params }: { params: Promis
       return;
     }
 
-    setShowExportMenu(false);
-
     try {
       // Create planning result from project data
       const planningResult = project as any;
@@ -427,63 +486,15 @@ export default function ProjectDetailPageSimplified({ params }: { params: Promis
               <Edit3 className="w-5 h-5" />
             </button>
 
-            {/* Export Menu */}
-            <div className="relative">
-              <button
-                onClick={() => setShowExportMenu(!showExportMenu)}
-                className="px-3 py-2 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors duration-150 flex items-center gap-1"
-              >
-                <Download className="w-4 h-4" />
-                <span>Export</span>
-                <ChevronDown className="w-3 h-3" />
-              </button>
-
-              {showExportMenu && (
-                <>
-                  {/* Backdrop */}
-                  <div
-                    className="fixed inset-0 z-10"
-                    onClick={() => setShowExportMenu(false)}
-                  />
-
-                  {/* Dropdown Menu */}
-                  <div className="absolute right-0 mt-2 w-56 bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 z-20 overflow-hidden">
-                    <button
-                      onClick={() => handleExport('quotation')}
-                      className="w-full px-4 py-3 text-left text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors duration-150 flex items-start gap-3"
-                    >
-                      <Download className="w-4 h-4 mt-0.5 flex-shrink-0" />
-                      <div>
-                        <div className="font-medium">Quotation Only</div>
-                        <div className="text-xs text-gray-500 dark:text-gray-400">Pricing and materials</div>
-                      </div>
-                    </button>
-
-                    <button
-                      onClick={() => handleExport('cad')}
-                      className="w-full px-4 py-3 text-left text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors duration-150 flex items-start gap-3 border-t border-gray-100 dark:border-gray-700"
-                    >
-                      <Download className="w-4 h-4 mt-0.5 flex-shrink-0" />
-                      <div>
-                        <div className="font-medium">CAD Drawing Only</div>
-                        <div className="text-xs text-gray-500 dark:text-gray-400">Technical layout</div>
-                      </div>
-                    </button>
-
-                    <button
-                      onClick={() => handleExport('both')}
-                      className="w-full px-4 py-3 text-left text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors duration-150 flex items-start gap-3 border-t border-gray-100 dark:border-gray-700"
-                    >
-                      <Download className="w-4 h-4 mt-0.5 flex-shrink-0" />
-                      <div>
-                        <div className="font-medium">Both Documents</div>
-                        <div className="text-xs text-gray-500 dark:text-gray-400">Quotation + CAD drawing</div>
-                      </div>
-                    </button>
-                  </div>
-                </>
-              )}
-            </div>
+            {/* Export Button - Direct Download */}
+            <button
+              onClick={() => handleExport('both')}
+              className="px-3 py-2 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors duration-150 flex items-center gap-1"
+              title="Export Quotation + CAD Drawing"
+            >
+              <Download className="w-4 h-4" />
+              <span>Export</span>
+            </button>
 
             {/* Save Changes */}
             {hasUnsavedChanges && (

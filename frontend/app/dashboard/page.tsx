@@ -30,6 +30,7 @@ export default function DashboardPage() {
   const [user, setUser] = useState<any>(null);
   const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set());
   const [projectVersions, setProjectVersions] = useState<Record<string, Project[]>>({});
+  const [selectedProjects, setSelectedProjects] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     loadUserAndProjects();
@@ -89,6 +90,59 @@ export default function DashboardPage() {
     } catch (error) {
       console.error('Error deleting project:', error);
       alert('Failed to delete project');
+    }
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedProjects.size === projects.length) {
+      setSelectedProjects(new Set());
+    } else {
+      setSelectedProjects(new Set(projects.map(p => p.id)));
+    }
+  };
+
+  const toggleSelectProject = (projectId: string) => {
+    const newSelected = new Set(selectedProjects);
+    if (newSelected.has(projectId)) {
+      newSelected.delete(projectId);
+    } else {
+      newSelected.add(projectId);
+    }
+    setSelectedProjects(newSelected);
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedProjects.size === 0) return;
+
+    if (!confirm(`Are you sure you want to delete ${selectedProjects.size} project(s)?`)) return;
+
+    try {
+      const supabase = createClient();
+      const deletePromises = Array.from(selectedProjects).map(id =>
+        supabase.from('projects').delete().eq('id', id)
+      );
+
+      await Promise.all(deletePromises);
+
+      // Reload projects
+      setProjects(projects.filter((p) => !selectedProjects.has(p.id)));
+      setSelectedProjects(new Set());
+    } catch (error) {
+      console.error('Error deleting projects:', error);
+      alert('Failed to delete some projects');
+    }
+  };
+
+  const handleBulkExport = async () => {
+    if (selectedProjects.size === 0) return;
+
+    try {
+      const exportPromises = Array.from(selectedProjects).map(id => handleExportProject(id));
+      await Promise.all(exportPromises);
+      alert(`Successfully exported ${selectedProjects.size} project(s)`);
+    } catch (error) {
+      console.error('Error exporting projects:', error);
+      alert('Failed to export some projects');
     }
   };
 
@@ -162,6 +216,19 @@ export default function DashboardPage() {
         createdAt: project.created_at,
       });
 
+      // Update project status to 'quoted' after successful export
+      const { error: updateError } = await supabase
+        .from('projects')
+        .update({ status: 'quoted' })
+        .eq('id', projectId);
+
+      if (updateError) {
+        console.warn('Failed to update project status:', updateError);
+      } else {
+        // Refresh projects list to show updated status
+        loadProjects();
+      }
+
       alert('Successfully generated 2 files:\n1. Technical Drawing\n2. Quotation Report');
     } catch (error) {
       console.error('Error exporting project:', error);
@@ -196,53 +263,49 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="bg-gray-50 dark:bg-gray-900 transition-colors py-8">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 transition-colors py-8">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        {/* Quick Start Banner - Conversational First */}
-        <div className="bg-gradient-to-r from-agriplast-green-600 via-agriplast-green-700 to-agriplast-green-800 rounded-2xl shadow-xl p-8 mb-8 relative overflow-hidden">
-          {/* Background Pattern */}
-          <div className="absolute inset-0 opacity-10">
-            <svg className="w-full h-full" viewBox="0 0 100 100" preserveAspectRatio="none">
-              <pattern id="grid" width="10" height="10" patternUnits="userSpaceOnUse">
-                <path d="M 10 0 L 0 0 0 10" fill="none" stroke="white" strokeWidth="0.5" />
-              </pattern>
-              <rect width="100" height="100" fill="url(#grid)" />
-            </svg>
-          </div>
-
-          <div className="relative z-10 flex items-center justify-between">
-            <div className="flex-1">
-              <h2 className="text-3xl font-bold text-white mb-2 flex items-center gap-3">
-                <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+        {/* Bulk Actions Bar - shown when items are selected */}
+        {selectedProjects.size > 0 && (
+          <div className="bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-700 rounded-xl p-4 mb-4 flex items-center justify-between transition-colors">
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2">
+                <svg className="w-5 h-5 text-blue-600 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
-                Quick Start
-              </h2>
-              <p className="text-green-50 text-lg mb-4">
-                Create a new polyhouse plan in <span className="font-bold text-white">~3 clicks</span> with AI guidance
-              </p>
-              <div className="flex items-center gap-2 text-green-100 text-sm">
-                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                </svg>
-                <span>Conversational interface • Smart defaults • Real-time chat guidance</span>
+                <span className="font-medium text-blue-900 dark:text-blue-100">
+                  {selectedProjects.size} project{selectedProjects.size !== 1 ? 's' : ''} selected
+                </span>
               </div>
+              <button
+                onClick={() => setSelectedProjects(new Set())}
+                className="text-sm text-blue-700 dark:text-blue-300 hover:text-blue-800 dark:hover:text-blue-200 transition-colors"
+              >
+                Clear selection
+              </button>
             </div>
-
-            <Link
-              href="/projects/new"
-              className="group relative bg-white hover:bg-gray-50 text-agriplast-green-700 px-8 py-4 rounded-xl font-bold text-lg shadow-lg hover:shadow-2xl transition-all duration-200 flex items-center gap-3 hover:scale-105 active:scale-95"
-            >
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-              </svg>
-              <span>Start New Project</span>
-              <svg className="w-5 h-5 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
-              </svg>
-            </Link>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleBulkExport}
+                className="px-4 py-2 bg-blue-600 dark:bg-blue-700 text-white rounded-lg hover:bg-blue-700 dark:hover:bg-blue-600 transition-colors font-medium flex items-center gap-2"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                Export
+              </button>
+              <button
+                onClick={handleBulkDelete}
+                className="px-4 py-2 bg-red-600 dark:bg-red-700 text-white rounded-lg hover:bg-red-700 dark:hover:bg-red-600 transition-colors font-medium flex items-center gap-2"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
+                Delete
+              </button>
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Projects Section Header */}
         <div className="flex items-center justify-between mb-6">
@@ -252,6 +315,15 @@ export default function DashboardPage() {
               {projects.length} project{projects.length !== 1 ? 's' : ''} • Click any project to view and modify
             </p>
           </div>
+          <Link
+            href="/projects/new"
+            className="inline-flex items-center gap-2 bg-gradient-to-r from-agriplast-green-600 to-agriplast-green-700 hover:from-agriplast-green-700 hover:to-agriplast-green-800 text-white px-6 py-3 rounded-lg transition-all duration-200 font-semibold shadow-md hover:shadow-lg"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+            </svg>
+            New Project
+          </Link>
         </div>
 
         {/* Projects Table */}
@@ -260,25 +332,19 @@ export default function DashboardPage() {
             <div className="max-w-md mx-auto">
               <div className="w-20 h-20 bg-gradient-to-br from-agriplast-green-100 to-agriplast-green-200 dark:from-agriplast-green-900 dark:to-agriplast-green-800 rounded-full flex items-center justify-center mx-auto mb-6">
                 <svg className="w-10 h-10 text-agriplast-green-600 dark:text-agriplast-green-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                 </svg>
               </div>
-              <h3 className="text-2xl font-bold text-gray-900 dark:text-white mb-3 transition-colors">Ready to Start?</h3>
-              <p className="text-gray-600 dark:text-gray-400 mb-2 transition-colors">Create your first polyhouse plan with our conversational AI</p>
-              <p className="text-sm text-gray-500 dark:text-gray-500 mb-8 transition-colors">
-                ✨ Just 3 clicks • 💬 Chat-guided • ⚡ Smart defaults
-              </p>
+              <h3 className="text-2xl font-bold text-gray-900 dark:text-white mb-3 transition-colors">No Projects Yet</h3>
+              <p className="text-gray-600 dark:text-gray-400 mb-8 transition-colors">Create your first polyhouse plan with AI-powered optimization</p>
               <Link
                 href="/projects/new"
-                className="inline-flex items-center gap-2 bg-gradient-to-r from-agriplast-green-600 to-agriplast-green-700 hover:from-agriplast-green-700 hover:to-agriplast-green-800 text-white px-8 py-4 rounded-xl transition-all duration-200 font-bold text-lg shadow-lg hover:shadow-xl hover:scale-105 active:scale-95"
+                className="inline-flex items-center gap-2 bg-gradient-to-r from-agriplast-green-600 to-agriplast-green-700 hover:from-agriplast-green-700 hover:to-agriplast-green-800 text-white px-8 py-4 rounded-xl transition-all duration-200 font-bold text-lg shadow-lg hover:shadow-xl"
               >
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
                 </svg>
-                Quick Start Your First Project
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
-                </svg>
+                Create New Project
               </Link>
             </div>
           </div>
@@ -287,6 +353,14 @@ export default function DashboardPage() {
             <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
               <thead className="bg-gray-50 dark:bg-gray-900 transition-colors">
                 <tr>
+                  <th className="px-6 py-3 text-left w-[50px]">
+                    <input
+                      type="checkbox"
+                      checked={selectedProjects.size === projects.length && projects.length > 0}
+                      onChange={toggleSelectAll}
+                      className="w-4 h-4 text-green-600 bg-gray-100 dark:bg-gray-700 border-gray-300 dark:border-gray-600 rounded focus:ring-green-500 dark:focus:ring-green-400 focus:ring-2 cursor-pointer"
+                    />
+                  </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-[140px]">Project</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-[110px]">Land Area</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-[90px]">Polyhouses</th>
@@ -300,7 +374,15 @@ export default function DashboardPage() {
               <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700 transition-colors">
                 {projects.map((project) => (
                   <Fragment key={project.id}>
-                    <tr className="hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
+                    <tr className={`transition-colors ${selectedProjects.has(project.id) ? 'bg-blue-50 dark:bg-blue-900/20' : 'hover:bg-gray-50 dark:hover:bg-gray-700'}`}>
+                      <td className="px-6 py-4 w-[50px]">
+                        <input
+                          type="checkbox"
+                          checked={selectedProjects.has(project.id)}
+                          onChange={() => toggleSelectProject(project.id)}
+                          className="w-4 h-4 text-green-600 bg-gray-100 dark:bg-gray-700 border-gray-300 dark:border-gray-600 rounded focus:ring-green-500 dark:focus:ring-green-400 focus:ring-2 cursor-pointer"
+                        />
+                      </td>
                       <td className="px-6 py-4 w-[140px]">
                         <div className="flex items-center gap-2">
                           {/* Only show expand button if there are multiple versions */}
@@ -387,6 +469,7 @@ export default function DashboardPage() {
                         key={version.id}
                         className="bg-gray-50 dark:bg-gray-900 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors border-l-4 border-blue-400 dark:border-blue-600"
                       >
+                        <td className="px-6 py-3 w-[50px]"></td>
                         <td className="px-6 py-3 min-w-[150px] pl-16">
                           <div className="flex items-center gap-2">
                             <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
