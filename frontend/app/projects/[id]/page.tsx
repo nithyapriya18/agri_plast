@@ -100,6 +100,57 @@ export default function ProjectDetailPageSimplified({ params }: { params: Promis
 
   const loadPlanningResultIntoMemory = async (projectData: any) => {
     try {
+      // Default configuration with all required properties
+      const defaultConfiguration = {
+        blockDimensions: {
+          width: 8,
+          height: 4,
+        },
+        polyhouseGap: 3,
+        safetyBuffer: 1,
+        maxSideLength: 100,
+        minSideLength: 16,
+        minCornerDistance: 20,
+        minimumBlocksPerPolyhouse: 10,
+        maxLandArea: 1000,
+        solarOrientation: {
+          enabled: true,
+          latitudeDegrees: projectData.land_boundary?.coordinates?.[0]?.lat || 0,
+          allowedDeviationDegrees: 15,
+        },
+        terrain: {
+          considerSlope: true,
+          maxSlope: 5,
+          landLevelingOverride: false,
+          avoidWater: true,
+          ignoreRestrictedZones: false,
+        },
+        optimization: {
+          placementStrategy: 'balanced' as const,
+          minimizeCost: true,
+          preferLargerPolyhouses: true,
+          orientationStrategy: 'optimized' as const,
+        },
+      };
+
+      // Merge with saved configuration, ensuring optimization property exists
+      const configuration = {
+        ...defaultConfiguration,
+        ...projectData.configuration,
+        optimization: {
+          ...defaultConfiguration.optimization,
+          ...(projectData.configuration?.optimization || {}),
+        },
+        solarOrientation: {
+          ...defaultConfiguration.solarOrientation,
+          ...(projectData.configuration?.solarOrientation || {}),
+        },
+        terrain: {
+          ...defaultConfiguration.terrain,
+          ...(projectData.configuration?.terrain || {}),
+        },
+      };
+
       // Reconstruct planning result from project data
       const planningResult = {
         success: true,
@@ -112,12 +163,12 @@ export default function ProjectDetailPageSimplified({ params }: { params: Promis
           createdAt: new Date(projectData.created_at),
         },
         polyhouses: projectData.polyhouses || [],
-        configuration: projectData.configuration || {},
+        configuration,
         quotation: projectData.quotation || {
           id: projectData.id,
           landAreaId: projectData.id,
           polyhouses: projectData.polyhouses || [],
-          configuration: projectData.configuration || {},
+          configuration,
           items: [],
           totalCost: projectData.estimated_cost,
           totalArea: projectData.total_coverage_sqm,
