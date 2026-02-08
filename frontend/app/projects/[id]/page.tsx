@@ -249,7 +249,15 @@ export default function ProjectDetailPageSimplified({ params }: { params: Promis
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.error || 'Failed to send message');
+        console.error('Chat API error:', {
+          status: response.status,
+          error: data.error,
+          message: data.message,
+          fullResponse: data
+        });
+        // Show detailed error message to help debug
+        const errorMsg = data.message ? `${data.error}: ${data.message}` : (data.error || 'Failed to process chat');
+        throw new Error(errorMsg);
       }
 
       const assistantMessage: ConversationMessage = {
