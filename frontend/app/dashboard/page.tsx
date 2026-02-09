@@ -181,12 +181,10 @@ export default function DashboardPage() {
     if (selectedProjects.size === 0) return;
 
     try {
-      const exportPromises = Array.from(selectedProjects).map(id => handleExportProject(id));
+      const exportPromises = Array.from(selectedProjects).map(id => handleExportBoth(id));
       await Promise.all(exportPromises);
-      alert(`Successfully exported ${selectedProjects.size} project(s)`);
     } catch (error) {
       console.error('Error exporting projects:', error);
-      alert('Failed to export some projects');
     }
   };
 
@@ -223,11 +221,9 @@ export default function DashboardPage() {
     }
   };
 
-  const handleExportProject = async (projectId: string) => {
+  const handleExportCAD = async (projectId: string) => {
     try {
       const supabase = createClient();
-
-      // Fetch full project data including polyhouses
       const { data: project, error } = await supabase
         .from('projects')
         .select('*')
@@ -237,18 +233,99 @@ export default function DashboardPage() {
       if (error) throw error;
       if (!project) throw new Error('Project not found');
 
-      // Validate required data
       if (!project.land_boundary || !project.polyhouses || project.polyhouses.length === 0) {
-        alert('Project data is incomplete. Cannot generate technical drawing.');
+        console.error('Project data is incomplete. Cannot generate technical drawing.');
         return;
       }
 
-      // Generate both technical drawing and quotation PDFs
-      const { generateProjectReports } = await import('@/lib/technicalDrawing');
+      const { generateTechnicalDrawing } = await import('@/lib/technicalDrawing');
+      const blob = await generateTechnicalDrawing({
+        projectName: project.name,
+        customerName: project.customer_name || 'Valued Customer',
+        locationName: project.location_name || 'Not specified',
+        landBoundary: project.land_boundary,
+        landAreaSqm: project.land_area_sqm,
+        polyhouses: project.polyhouses,
+        polyhouseCount: project.polyhouse_count,
+        totalCoverageSqm: project.total_coverage_sqm,
+        utilizationPercentage: project.utilization_percentage,
+        createdAt: project.created_at,
+      });
 
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${project.name.replace(/\s+/g, '_')}_Technical_Drawing.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Error exporting CAD:', error);
+    }
+  };
+
+  const handleExportQuotation = async (projectId: string) => {
+    try {
+      const supabase = createClient();
+      const { data: project, error } = await supabase
+        .from('projects')
+        .select('*')
+        .eq('id', projectId)
+        .single();
+
+      if (error) throw error;
+      if (!project) throw new Error('Project not found');
+
+      const { generateProjectPDF } = await import('@/lib/pdfExport');
+      await generateProjectPDF({
+        projectName: project.name,
+        customerName: project.customer_name,
+        customerEmail: project.customer_email,
+        locationName: project.location_name || 'Not specified',
+        landAreaSqm: project.land_area_sqm,
+        polyhouseCount: project.polyhouse_count,
+        totalCoverageSqm: project.total_coverage_sqm,
+        utilizationPercentage: project.utilization_percentage,
+        estimatedCost: project.estimated_cost,
+        polyhouses: project.polyhouses || [],
+        quotation: project.quotation || {},
+        createdAt: project.created_at,
+      });
+
+      // Update project status to 'quoted'
+      await supabase
+        .from('projects')
+        .update({ status: 'quoted' })
+        .eq('id', projectId);
+
+      loadUserAndProjects();
+    } catch (error) {
+      console.error('Error exporting quotation:', error);
+    }
+  };
+
+  const handleExportBoth = async (projectId: string) => {
+    try {
+      const supabase = createClient();
+      const { data: project, error } = await supabase
+        .from('projects')
+        .select('*')
+        .eq('id', projectId)
+        .single();
+
+      if (error) throw error;
+      if (!project) throw new Error('Project not found');
+
+      if (!project.land_boundary || !project.polyhouses || project.polyhouses.length === 0) {
+        console.error('Project data is incomplete.');
+        return;
+      }
+
+      const { generateProjectReports } = await import('@/lib/technicalDrawing');
       await generateProjectReports({
         projectName: project.name,
-        customerName: project.contact_name || project.customer_company_name || 'Valued Customer',
+        customerName: project.customer_name || 'Valued Customer',
         locationName: project.location_name || 'Not specified',
         landBoundary: project.land_boundary,
         landAreaSqm: project.land_area_sqm,
@@ -260,23 +337,15 @@ export default function DashboardPage() {
         createdAt: project.created_at,
       });
 
-      // Update project status to 'quoted' after successful export
-      const { error: updateError } = await supabase
+      // Update project status to 'quoted'
+      await supabase
         .from('projects')
         .update({ status: 'quoted' })
         .eq('id', projectId);
 
-      if (updateError) {
-        console.warn('Failed to update project status:', updateError);
-      } else {
-        // Refresh projects list to show updated status
-        loadProjects();
-      }
-
-      alert('Successfully generated 2 files:\n1. Technical Drawing\n2. Quotation Report');
+      loadUserAndProjects();
     } catch (error) {
-      console.error('Error exporting project:', error);
-      alert(`Failed to export PDFs: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      console.error('Error exporting both:', error);
     }
   };
 
@@ -413,7 +482,7 @@ export default function DashboardPage() {
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-[120px]">Cost</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-[90px]">Status</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-[180px]">Version Notes</th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-[160px]">Actions</th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-[200px]">Actions</th>
                 </tr>
               </thead>
               <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700 transition-colors">
@@ -533,34 +602,55 @@ export default function DashboardPage() {
                         {project.version_name || <span className="text-gray-400 dark:text-gray-500 italic">Initial version</span>}
                       </div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium w-[160px]">
-                      <Link
-                        href={`/projects/${project.id}`}
-                        className="text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 mr-4 transition-colors"
-                      >
-                        View
-                      </Link>
-                      <button
-                        onClick={() => {
-                          setSelectedProjectForFiles(project);
-                          setFilesModalOpen(true);
-                        }}
-                        className="text-purple-600 dark:text-purple-400 hover:text-purple-700 dark:hover:text-purple-300 mr-4 transition-colors"
-                      >
-                        Files
-                      </button>
-                      <button
-                        onClick={() => handleDeleteProject(project.id)}
-                        className="text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 mr-4 transition-colors"
-                      >
-                        Delete
-                      </button>
-                      <button
-                        onClick={() => handleExportProject(project.id)}
-                        className="text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 transition-colors"
-                      >
-                        Export
-                      </button>
+                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium w-[200px]">
+                      <div className="flex items-center justify-end gap-3">
+                        <Link
+                          href={`/projects/${project.id}`}
+                          className="text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 transition-colors"
+                        >
+                          View
+                        </Link>
+                        <button
+                          onClick={() => {
+                            setSelectedProjectForFiles(project);
+                            setFilesModalOpen(true);
+                          }}
+                          className="text-purple-600 dark:text-purple-400 hover:text-purple-700 dark:hover:text-purple-300 transition-colors"
+                        >
+                          Files
+                        </button>
+                        <button
+                          onClick={() => handleDeleteProject(project.id)}
+                          className="text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 transition-colors"
+                        >
+                          Delete
+                        </button>
+                        <div className="relative group">
+                          <button className="text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 transition-colors">
+                            Export ▾
+                          </button>
+                          <div className="absolute right-0 mt-1 w-32 bg-white dark:bg-gray-700 rounded-md shadow-lg border border-gray-200 dark:border-gray-600 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-10">
+                            <button
+                              onClick={() => handleExportCAD(project.id)}
+                              className="block w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors"
+                            >
+                              CAD
+                            </button>
+                            <button
+                              onClick={() => handleExportQuotation(project.id)}
+                              className="block w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors"
+                            >
+                              Quotation
+                            </button>
+                            <button
+                              onClick={() => handleExportBoth(project.id)}
+                              className="block w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors rounded-b-md"
+                            >
+                              Both
+                            </button>
+                          </div>
+                        </div>
+                      </div>
                     </td>
                   </tr>
 
