@@ -3,13 +3,14 @@
 import { useState, useEffect, use } from 'react';
 import { useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
-import { PlanningResult, Polyhouse, ConversationMessage } from '@shared/types';
+import { PlanningResult, Polyhouse, ConversationMessage, ProjectZone } from '@shared/types';
 import ChatLayout from '@/components/ChatLayout';
 import QuotationModal from '@/components/QuotationModal';
+import ZoneManagerModal from '@/components/ZoneManagerModal';
 import EnhancedChatInterface from '@/components/EnhancedChatInterface';
 import DSLViewer, { DSLQuickActions } from '@/components/DSLViewer';
 import { createClient } from '@/lib/supabase/client';
-import { Loader2, Download, Save, Edit3, Trash2, X } from 'lucide-react';
+import { Loader2, Download, Save, Edit3, Trash2, X, Map } from 'lucide-react';
 
 const MapComponent = dynamic(() => import('@/components/MapComponent'), {
   ssr: false,
@@ -59,6 +60,9 @@ export default function ProjectDetailPageSimplified({ params }: { params: Promis
 
   // UI state
   const [showQuotationModal, setShowQuotationModal] = useState(false);
+  const [showZoneManager, setShowZoneManager] = useState(false);
+  const [zones, setZones] = useState<ProjectZone[]>([]);
+  const [nextZoneType, setNextZoneType] = useState<'inclusion' | 'exclusion'>('inclusion');
   const [showDSL, setShowDSL] = useState(false);
   const [editMode, setEditMode] = useState(false);
 
@@ -107,6 +111,17 @@ export default function ProjectDetailPageSimplified({ params }: { params: Promis
 
       setProject(data);
       setPlanningResultId(data.id);
+
+      // Load project zones
+      const { data: zonesData } = await supabase
+        .from('project_zones')
+        .select('*')
+        .eq('project_id', id)
+        .order('created_at', { ascending: true });
+
+      if (zonesData) {
+        setZones(zonesData);
+      }
 
       // Load planning result into backend memory for chat functionality
       await loadPlanningResultIntoMemory(data);
@@ -269,6 +284,28 @@ export default function ProjectDetailPageSimplified({ params }: { params: Promis
   const handleSendMessage = async (message: string) => {
     if (!planningResultId || !project) return;
 
+    // Check if user wants to change zone type for next upload
+    const lowerMessage = message.toLowerCase();
+    if (lowerMessage.includes('next zone') && lowerMessage.includes('exclusion')) {
+      setNextZoneType('exclusion');
+      const confirmMessage: ConversationMessage = {
+        role: 'assistant',
+        content: '🔴 Got it! The next KML file(s) you upload will be marked as **exclusion zones** (red, non-buildable areas).\n\nJust drag & drop or click the paperclip to upload.',
+        timestamp: new Date(),
+      };
+      setConversationHistory(prev => [...prev, confirmMessage]);
+      return;
+    } else if (lowerMessage.includes('next zone') && lowerMessage.includes('inclusion')) {
+      setNextZoneType('inclusion');
+      const confirmMessage: ConversationMessage = {
+        role: 'assistant',
+        content: '🟢 Got it! The next KML file(s) you upload will be marked as **inclusion zones** (colored, buildable areas).\n\nJust drag & drop or click the paperclip to upload.',
+        timestamp: new Date(),
+      };
+      setConversationHistory(prev => [...prev, confirmMessage]);
+      return;
+    }
+
     const userMessage: ConversationMessage = {
       role: 'user',
       content: message,
@@ -403,45 +440,127 @@ export default function ProjectDetailPageSimplified({ params }: { params: Promis
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Not authenticated');
 
-      // Upload to Supabase Storage
-      const fileExt = file.name.split('.').pop();
-      const fileName = `${project.id}/${Date.now()}.${fileExt}`;
-      const { data: uploadData, error: uploadError } = await supabase.storage
-        .from('project-files')
-        .upload(fileName, file);
+      // Check if it's a KML file
+      const isKML = file.name.toLowerCase().endsWith('.kml');
 
-      if (uploadError) throw uploadError;
+      if (isKML) {
+        // Handle KML file as a zone
+        const formData = new FormData();
+        formData.append('file', file);
 
-      // Get public URL
-      const { data: { publicUrl } } = supabase.storage
-        .from('project-files')
-        .getPublicUrl(fileName);
+        // Upload and parse KML
+        const uploadResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/zones/upload`, {
+          method: 'POST',
+          body: formData,
+        });
 
-      // Save file metadata to database
-      const { error: dbError } = await supabase.from('project_files').insert({
-        project_id: project.id,
-        file_name: file.name,
-        file_type: file.type,
-        file_size: file.size,
-        file_url: publicUrl,
-        storage_path: fileName,
-        uploaded_by: user.id,
-      });
+        if (!uploadResponse.ok) {
+          const errorData = await uploadResponse.json();
+          throw new Error(errorData.error || 'Failed to upload KML');
+        }
 
-      if (dbError) throw dbError;
+        const uploadData = await uploadResponse.json();
 
-      // Add success message to chat
-      const successMessage: ConversationMessage = {
-        role: 'assistant',
-        content: `✅ File **${file.name}** uploaded successfully! You can view and manage all project files from the dashboard.`,
-        timestamp: new Date(),
-      };
-      setConversationHistory(prev => [...prev, successMessage]);
+        // Determine color based on zone type and count
+        let zoneColor: string;
+        if (nextZoneType === 'exclusion') {
+          zoneColor = '#F44336'; // Red for exclusion
+        } else {
+          // Different colors for each inclusion zone
+          const inclusionColors = ['#4CAF50', '#2196F3', '#FF9800', '#9C27B0', '#00BCD4', '#FFEB3B'];
+          const currentInclusionCount = zones.filter(z => z.zone_type === 'inclusion').length;
+          zoneColor = inclusionColors[currentInclusionCount % inclusionColors.length];
+        }
 
-      // Save message to database
-      await supabase.from('chat_messages').insert([
-        { project_id: project.id, role: 'assistant', content: successMessage.content },
-      ]);
+        // Create zone with determined type and color
+        const createResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/zones/${project.id}`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            zone_type: nextZoneType,
+            name: uploadData.zone.name,
+            coordinates: uploadData.zone.coordinates,
+            file_name: uploadData.zone.file_name,
+            color: zoneColor,
+          }),
+        });
+
+        if (!createResponse.ok) {
+          throw new Error('Failed to create zone');
+        }
+
+        // Reload zones
+        const { data: zonesData } = await supabase
+          .from('project_zones')
+          .select('*')
+          .eq('project_id', project.id)
+          .order('created_at', { ascending: true });
+
+        if (zonesData) {
+          setZones(zonesData);
+        }
+
+        // Reset to inclusion for next upload
+        const wasExclusion = nextZoneType === 'exclusion';
+        setNextZoneType('inclusion');
+
+        // Add success message to chat
+        const isInclusion = !wasExclusion;
+        const successMessage: ConversationMessage = {
+          role: 'assistant',
+          content: `✅ KML file **${file.name}** uploaded successfully as ${isInclusion ? 'an **inclusion zone**' : 'an **exclusion zone**'}!\n\n📍 Area: ${uploadData.zone.area_sqm.toFixed(0)} m² (${(uploadData.zone.area_sqm / 10000).toFixed(2)} ha)\n${isInclusion ? '🟢' : '🔴'} **Color**: ${isInclusion ? 'Visible on map' : 'Red (non-buildable area)'}\n\nYou can:\n- View it on the map with its unique color\n- ${isInclusion ? 'Change it to an exclusion zone' : 'Change it to an inclusion zone'} via the **Zones** button\n- Upload more zones (tell me "next zone is exclusion" to upload exclusion zones)\n- Re-optimize the layout when ready\n\nWould you like to upload more zones or re-optimize now?`,
+          timestamp: new Date(),
+        };
+        setConversationHistory(prev => [...prev, successMessage]);
+
+        // Save message to database
+        await supabase.from('chat_messages').insert([
+          { project_id: project.id, role: 'assistant', content: successMessage.content },
+        ]);
+      } else {
+        // Handle non-KML files as generic project files
+        // Upload to Supabase Storage
+        const fileExt = file.name.split('.').pop();
+        const fileName = `${project.id}/${Date.now()}.${fileExt}`;
+        const { data: uploadData, error: uploadError } = await supabase.storage
+          .from('project-files')
+          .upload(fileName, file);
+
+        if (uploadError) throw uploadError;
+
+        // Get public URL
+        const { data: { publicUrl } } = supabase.storage
+          .from('project-files')
+          .getPublicUrl(fileName);
+
+        // Save file metadata to database
+        const { error: dbError } = await supabase.from('project_files').insert({
+          project_id: project.id,
+          file_name: file.name,
+          file_type: file.type,
+          file_size: file.size,
+          file_url: publicUrl,
+          storage_path: fileName,
+          uploaded_by: user.id,
+        });
+
+        if (dbError) throw dbError;
+
+        // Add success message to chat
+        const successMessage: ConversationMessage = {
+          role: 'assistant',
+          content: `✅ File **${file.name}** uploaded successfully! You can view and manage all project files from the dashboard.`,
+          timestamp: new Date(),
+        };
+        setConversationHistory(prev => [...prev, successMessage]);
+
+        // Save message to database
+        await supabase.from('chat_messages').insert([
+          { project_id: project.id, role: 'assistant', content: successMessage.content },
+        ]);
+      }
     } catch (error) {
       console.error('Error uploading file:', error);
       const errorMessage: ConversationMessage = {
@@ -676,6 +795,16 @@ export default function ProjectDetailPageSimplified({ params }: { params: Promis
     }
   };
 
+  // Handle zone updates
+  const handleZonesUpdated = (updatedZones: ProjectZone[]) => {
+    setZones(updatedZones);
+    // Trigger re-optimization if zones changed significantly
+    if (updatedZones.length > 0) {
+      const message = 'Zones have been updated. Please re-optimize the layout with the new zones.';
+      handleSendMessage(message);
+    }
+  };
+
   // Handle DSL quick actions
   const handleShowPricing = () => {
     setShowDSL(true);
@@ -794,6 +923,16 @@ export default function ProjectDetailPageSimplified({ params }: { params: Promis
               <Edit3 className="w-5 h-5" />
             </button>
 
+            {/* Manage Zones */}
+            <button
+              onClick={() => setShowZoneManager(true)}
+              className="px-3 py-2 text-sm bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-medium transition-colors duration-150 flex items-center gap-1"
+              title="Manage project zones (inclusion/exclusion)"
+            >
+              <Map className="w-4 h-4" />
+              <span>Zones</span>
+            </button>
+
             {/* Export Dropdown */}
             <div className="relative group">
               <button className="px-3 py-2 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors duration-150 flex items-center gap-1">
@@ -858,6 +997,7 @@ export default function ProjectDetailPageSimplified({ params }: { params: Promis
               <MapComponent
                 landBoundary={project.land_boundary?.coordinates || []}
                 polyhouses={project.polyhouses}
+                zones={zones}
                 editMode={editMode}
                 loading={false}
                 onBoundaryComplete={(boundary) => {
@@ -1037,6 +1177,16 @@ export default function ProjectDetailPageSimplified({ params }: { params: Promis
             </div>
           </div>
         </div>
+      )}
+
+      {/* Zone Manager Modal */}
+      {project && (
+        <ZoneManagerModal
+          projectId={project.id}
+          isOpen={showZoneManager}
+          onClose={() => setShowZoneManager(false)}
+          onZonesUpdated={handleZonesUpdated}
+        />
       )}
     </div>
   );

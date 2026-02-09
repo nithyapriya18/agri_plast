@@ -11,6 +11,7 @@ import { usageRouter } from './routes/usage';
 import { pricingRouter } from './routes/pricing';
 import { settingsRouter } from './routes/settings';
 import { versionsRouter } from './routes/versions';
+import { zonesRouter } from './routes/zones';
 import learningRouter from './routes/learning';
 
 // Load environment variables
@@ -51,6 +52,7 @@ app.use('/api/usage', usageRouter);
 app.use('/api/pricing', pricingRouter);
 app.use('/api/user_settings', settingsRouter);
 app.use('/api/projects', versionsRouter);
+app.use('/api/zones', zonesRouter);
 app.use('/api/learning', learningRouter);
 
 // Health check

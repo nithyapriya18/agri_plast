@@ -85,9 +85,35 @@ export async function handleChat(req: Request, res: Response) {
         polyhouses = currentPlan.polyhouses;
       } else {
         console.log('Re-running full optimization with updated configuration');
+
+        // Fetch project zones if projectId is available
+        let zones = [];
+        if (projectId) {
+          try {
+            const { supabase } = await import('../lib/supabase');
+            const { data: zonesData, error: zonesError } = await supabase
+              .from('project_zones')
+              .select('*')
+              .eq('project_id', projectId)
+              .order('created_at', { ascending: true });
+
+            if (!zonesError && zonesData) {
+              zones = zonesData;
+              console.log(`📍 Loaded ${zones.length} project zone(s)`);
+            }
+          } catch (error) {
+            console.warn('Could not fetch project zones:', error);
+          }
+        }
+
         // Re-run optimization with V2 (maximum-sized polyhouses)
         const { PolyhouseOptimizerV2 } = await import('../services/optimizerV2');
-        const optimizer = new PolyhouseOptimizerV2(currentPlan.landArea, updatedConfiguration);
+        const optimizer = new PolyhouseOptimizerV2(
+          currentPlan.landArea,
+          updatedConfiguration,
+          undefined, // No terrain data in chat context
+          zones
+        );
         polyhouses = await optimizer.optimize();
       }
 

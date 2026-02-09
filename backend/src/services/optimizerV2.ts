@@ -20,6 +20,7 @@ import {
   Point,
   Coordinate,
   PolyhouseConfiguration,
+  ProjectZone,
   POLYHOUSE_COLORS,
 } from '@shared/types';
 
@@ -59,6 +60,7 @@ export class PolyhouseOptimizerV2 {
   private config: PolyhouseConfiguration;
   private landArea: LandArea;
   private terrainData: any; // TerrainAnalysisResult from terrainAnalysis.ts
+  private zones: ProjectZone[]; // Project zones (inclusion/exclusion)
 
   // Industry-standard dimensions
   private readonly GABLE_MODULE = 8;     // 8m gable bay
@@ -69,14 +71,113 @@ export class PolyhouseOptimizerV2 {
   private readonly TARGET_MAX_POLYHOUSES = 10; // Maximum 10 polyhouses
   private readonly TARGET_COVERAGE = 65;       // Target 65% coverage (industry standard)
 
-  constructor(landArea: LandArea, config: PolyhouseConfiguration, terrainData?: any) {
+  constructor(landArea: LandArea, config: PolyhouseConfiguration, terrainData?: any, zones?: ProjectZone[]) {
     this.config = config;
     this.landArea = landArea;
     this.terrainData = terrainData;
+    this.zones = zones || [];
 
     if (terrainData) {
       console.log(`🌍 Terrain data loaded: ${terrainData.restrictedAreas?.length || 0} restricted zones`);
     }
+
+    if (zones && zones.length > 0) {
+      const inclusionCount = zones.filter(z => z.zone_type === 'inclusion').length;
+      const exclusionCount = zones.filter(z => z.zone_type === 'exclusion').length;
+      console.log(`🗺️  Project zones loaded: ${inclusionCount} inclusion zone(s), ${exclusionCount} exclusion zone(s)`);
+    }
+  }
+
+  /**
+   * Build buildable area from project zones
+   * If zones exist: Union inclusion zones, subtract exclusion zones
+   * If no zones: Use original land boundary
+   */
+  private buildBuildableArea(): turf.Feature<turf.Polygon | turf.MultiPolygon> {
+    // If no zones, use legacy land boundary
+    if (!this.zones || this.zones.length === 0) {
+      const landCoords = this.landArea.coordinates.map(c => [c.lng, c.lat]);
+      landCoords.push([this.landArea.coordinates[0].lng, this.landArea.coordinates[0].lat]);
+      return turf.polygon([landCoords]);
+    }
+
+    // Get inclusion and exclusion zones
+    const inclusionZones = this.zones.filter(z => z.zone_type === 'inclusion');
+    const exclusionZones = this.zones.filter(z => z.zone_type === 'exclusion');
+
+    console.log(`\n📍 Processing zones: ${inclusionZones.length} inclusion, ${exclusionZones.length} exclusion`);
+
+    // Start with inclusion zones
+    let buildableArea: turf.Feature<turf.Polygon | turf.MultiPolygon> | null = null;
+
+    if (inclusionZones.length > 0) {
+      // Union all inclusion zones
+      for (const zone of inclusionZones) {
+        const zoneCoords = zone.coordinates.map(c => [c.lng, c.lat]);
+        // Close the polygon if not already closed
+        if (zoneCoords[0][0] !== zoneCoords[zoneCoords.length - 1][0] ||
+            zoneCoords[0][1] !== zoneCoords[zoneCoords.length - 1][1]) {
+          zoneCoords.push(zoneCoords[0]);
+        }
+        const zonePoly = turf.polygon([zoneCoords]);
+
+        if (buildableArea === null) {
+          buildableArea = zonePoly;
+        } else {
+          try {
+            const unionResult = turf.union(buildableArea, zonePoly);
+            if (unionResult) {
+              buildableArea = unionResult as turf.Feature<turf.Polygon | turf.MultiPolygon>;
+            }
+          } catch (error) {
+            console.warn(`⚠️  Could not union inclusion zone "${zone.name}": ${error instanceof Error ? error.message : 'Unknown error'}`);
+          }
+        }
+      }
+
+      console.log(`   ✓ Combined ${inclusionZones.length} inclusion zone(s)`);
+    } else {
+      // Fallback: Use original land boundary if no inclusion zones
+      console.log(`   ⚠️  No inclusion zones found, using land boundary`);
+      const landCoords = this.landArea.coordinates.map(c => [c.lng, c.lat]);
+      landCoords.push([this.landArea.coordinates[0].lng, this.landArea.coordinates[0].lat]);
+      buildableArea = turf.polygon([landCoords]);
+    }
+
+    // Subtract exclusion zones
+    if (exclusionZones.length > 0 && buildableArea) {
+      for (const zone of exclusionZones) {
+        const zoneCoords = zone.coordinates.map(c => [c.lng, c.lat]);
+        // Close the polygon if not already closed
+        if (zoneCoords[0][0] !== zoneCoords[zoneCoords.length - 1][0] ||
+            zoneCoords[0][1] !== zoneCoords[zoneCoords.length - 1][1]) {
+          zoneCoords.push(zoneCoords[0]);
+        }
+        const zonePoly = turf.polygon([zoneCoords]);
+
+        try {
+          const diffResult = turf.difference(buildableArea, zonePoly);
+          if (diffResult) {
+            buildableArea = diffResult as turf.Feature<turf.Polygon | turf.MultiPolygon>;
+            console.log(`   ✓ Subtracted exclusion zone "${zone.name}"`);
+          } else {
+            console.warn(`   ⚠️  Exclusion zone "${zone.name}" removed all buildable area`);
+          }
+        } catch (error) {
+          console.warn(`   ⚠️  Could not subtract exclusion zone "${zone.name}": ${error instanceof Error ? error.message : 'Unknown error'}`);
+        }
+      }
+    }
+
+    if (!buildableArea) {
+      // Emergency fallback
+      console.error('❌ Could not create buildable area from zones, using land boundary');
+      const landCoords = this.landArea.coordinates.map(c => [c.lng, c.lat]);
+      landCoords.push([this.landArea.coordinates[0].lng, this.landArea.coordinates[0].lat]);
+      return turf.polygon([landCoords]);
+    }
+
+    return buildableArea;
   }
 
   /**
@@ -104,10 +205,8 @@ export class PolyhouseOptimizerV2 {
     const startTime = Date.now();
     const polyhouses: Polyhouse[] = [];
 
-    // Create land polygon for validation
-    const landCoords = this.landArea.coordinates.map(c => [c.lng, c.lat]);
-    landCoords.push([this.landArea.coordinates[0].lng, this.landArea.coordinates[0].lat]);
-    let landPolygon = turf.polygon([landCoords]);
+    // Build buildable area from zones (or use land boundary if no zones)
+    let landPolygon = this.buildBuildableArea();
 
     // Apply safety buffer (inward buffer to keep polyhouses away from edges)
     const safetyBuffer = this.config.safetyBuffer || 1.0;

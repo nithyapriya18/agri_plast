@@ -164,15 +164,18 @@ export default function EnhancedChatInterface({
   };
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file && !sending) {
-      // Pass file to parent for processing
-      if (onFileUpload) {
-        onFileUpload(file);
-        // Clean up file input
-        if (fileInputRef.current) {
-          fileInputRef.current.value = '';
+    const files = e.target.files;
+    if (files && files.length > 0 && !sending) {
+      // Process all selected files
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        if (onFileUpload) {
+          onFileUpload(file);
         }
+      }
+      // Clean up file input
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
       }
     }
   };
@@ -190,15 +193,18 @@ export default function EnhancedChatInterface({
   const handleDrop = async (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(false);
-    const file = e.dataTransfer.files?.[0];
-    if (file && !sending) {
-      // Pass file to parent for processing
-      if (onFileUpload) {
-        onFileUpload(file);
-        // Clean up file input
-        if (fileInputRef.current) {
-          fileInputRef.current.value = '';
+    const files = e.dataTransfer.files;
+    if (files && files.length > 0 && !sending) {
+      // Process all dropped files
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        if (onFileUpload) {
+          onFileUpload(file);
         }
+      }
+      // Clean up file input
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
       }
     }
   };
@@ -567,6 +573,8 @@ export default function EnhancedChatInterface({
           <input
             ref={fileInputRef}
             type="file"
+            accept=".kml"
+            multiple
             onChange={handleFileSelect}
             className="hidden"
           />

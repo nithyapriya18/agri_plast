@@ -24,6 +24,20 @@ export interface LandArea {
   createdAt: Date;
 }
 
+// Project Zone - Multiple KML zones per project (inclusion/exclusion)
+export interface ProjectZone {
+  id: string;
+  project_id: string;
+  zone_type: 'inclusion' | 'exclusion';
+  name: string;
+  coordinates: Coordinate[]; // Polygon boundary
+  area_sqm: number; // Area in square meters
+  file_name?: string; // Original KML filename
+  color: string; // Hex color for map visualization
+  created_at?: Date;
+  updated_at?: Date;
+}
+
 // Block - Standard 8m x 4m composable unit
 export interface Block {
   id: string;
