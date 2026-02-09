@@ -112,6 +112,7 @@ export async function handleChat(req: Request, res: Response) {
     // Clean up response by removing control flags
     const cleanResponse = result.response
       .replace(/\[RECALCULATE:UNIFORM_ORIENTATION[^\]]*\]/g, '')
+      .replace(/\[RECALCULATE:\d+\]/g, '') // Remove [RECALCULATE:50] style tags
       .replace('[RECALCULATE:MAXIMIZE]', '')
       .replace('[RECALCULATE:IGNORE_RESTRICTIONS]', '')
       .replace('[RECALCULATE:FILL_GAPS]', '')

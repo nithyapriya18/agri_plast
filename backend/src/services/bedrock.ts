@@ -486,8 +486,17 @@ When answering questions, consider the local climate and latitude when giving ad
     }
 
     // Check for minimum blocks per polyhouse changes
+    // Support both [RECALCULATE:NUMBER] format and natural language
+    const recalculateWithNumberMatch = response.match(/\[RECALCULATE:(\d+)\]/);
     const minimumBlocksMatch = response.match(/minimum\s+blocks?\s+(?:per\s+polyhouse\s+)?(?:to\s+)?(\d+)/i);
-    if (minimumBlocksMatch) {
+
+    if (recalculateWithNumberMatch) {
+      const requestedMinBlocks = parseInt(recalculateWithNumberMatch[1]);
+      if (requestedMinBlocks >= 1 && requestedMinBlocks <= 100) {
+        console.log(`📦 User requested minimum blocks per polyhouse: ${requestedMinBlocks} (from tag)`);
+        changes.minimumBlocksPerPolyhouse = requestedMinBlocks;
+      }
+    } else if (minimumBlocksMatch) {
       const requestedMinBlocks = parseInt(minimumBlocksMatch[1]);
       if (requestedMinBlocks >= 1 && requestedMinBlocks <= 100) {
         console.log(`📦 User requested minimum blocks per polyhouse: ${requestedMinBlocks}`);
