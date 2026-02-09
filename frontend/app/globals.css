@@ -18,15 +18,6 @@ body {
     rgb(var(--background-start-rgb));
 }
 
-/* Mapbox overrides */
-.mapboxgl-canvas {
-  cursor: crosshair !important;
-}
-
-.mapboxgl-ctrl-group button {
-  @apply hover:bg-gray-100;
-}
-
 /* Custom scrollbar */
 ::-webkit-scrollbar {
   width: 8px;
@@ -43,15 +34,4 @@ body {
 
 ::-webkit-scrollbar-thumb:hover {
   @apply bg-gray-500;
-}
-
-/* Polyhouse popup styling */
-.polyhouse-popup .mapboxgl-popup-content {
-  @apply rounded-lg shadow-xl border-2 border-agriplast-green-600 bg-white;
-  padding: 0 !important;
-  font-family: system-ui, -apple-system, sans-serif;
-}
-
-.polyhouse-popup .mapboxgl-popup-tip {
-  @apply border-t-agriplast-green-600;
 }
