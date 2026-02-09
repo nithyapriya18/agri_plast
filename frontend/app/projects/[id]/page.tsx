@@ -376,6 +376,66 @@ export default function ProjectDetailPageSimplified({ params }: { params: Promis
     }
   };
 
+  const handleFileUpload = async (file: File) => {
+    if (!project) return;
+
+    try {
+      const supabase = createClient();
+
+      // Get authenticated user
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Not authenticated');
+
+      // Upload to Supabase Storage
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${project.id}/${Date.now()}.${fileExt}`;
+      const { data: uploadData, error: uploadError } = await supabase.storage
+        .from('project-files')
+        .upload(fileName, file);
+
+      if (uploadError) throw uploadError;
+
+      // Get public URL
+      const { data: { publicUrl } } = supabase.storage
+        .from('project-files')
+        .getPublicUrl(fileName);
+
+      // Save file metadata to database
+      const { error: dbError } = await supabase.from('project_files').insert({
+        project_id: project.id,
+        file_name: file.name,
+        file_type: file.type,
+        file_size: file.size,
+        file_url: publicUrl,
+        storage_path: fileName,
+        uploaded_by: user.id,
+      });
+
+      if (dbError) throw dbError;
+
+      // Add success message to chat
+      const successMessage: ConversationMessage = {
+        role: 'assistant',
+        content: `✅ File **${file.name}** uploaded successfully! You can view and manage all project files from the dashboard.`,
+        timestamp: new Date(),
+      };
+      setConversationHistory(prev => [...prev, successMessage]);
+
+      // Save message to database
+      await supabase.from('chat_messages').insert([
+        { project_id: project.id, role: 'assistant', content: successMessage.content },
+      ]);
+    } catch (error) {
+      console.error('Error uploading file:', error);
+      const errorMessage: ConversationMessage = {
+        role: 'assistant',
+        content: `❌ Failed to upload file: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        timestamp: new Date(),
+      };
+      setConversationHistory(prev => [...prev, errorMessage]);
+    }
+  };
+
   const handleSaveChanges = () => {
     if (!project || !hasUnsavedChanges) return;
     setShowCommitModal(true);
@@ -703,6 +763,7 @@ export default function ProjectDetailPageSimplified({ params }: { params: Promis
                   conversationHistory={conversationHistory}
                   onSendMessage={handleSendMessage}
                   isThinking={isChatThinking}
+                  onFileUpload={handleFileUpload}
                   planningResult={{
                     success: true,
                     landArea: {

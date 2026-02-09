@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 import { ThemeToggle } from '@/components/ThemeToggle';
+import ProjectFilesModal from '@/components/ProjectFilesModal';
 
 interface Project {
   id: string;
@@ -540,6 +541,15 @@ export default function DashboardPage() {
                         View
                       </Link>
                       <button
+                        onClick={() => {
+                          setSelectedProjectForFiles(project);
+                          setFilesModalOpen(true);
+                        }}
+                        className="text-purple-600 dark:text-purple-400 hover:text-purple-700 dark:hover:text-purple-300 mr-4 transition-colors"
+                      >
+                        Files
+                      </button>
+                      <button
                         onClick={() => handleDeleteProject(project.id)}
                         className="text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 mr-4 transition-colors"
                       >
@@ -618,6 +628,19 @@ export default function DashboardPage() {
           </div>
         )}
       </div>
+
+      {/* Project Files Modal */}
+      {selectedProjectForFiles && (
+        <ProjectFilesModal
+          isOpen={filesModalOpen}
+          onClose={() => {
+            setFilesModalOpen(false);
+            setSelectedProjectForFiles(null);
+          }}
+          projectId={selectedProjectForFiles.id}
+          projectName={selectedProjectForFiles.name}
+        />
+      )}
     </div>
   );
 }

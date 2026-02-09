@@ -10,6 +10,7 @@ interface ProjectFile {
   file_type: string;
   file_size: number;
   file_url: string;
+  storage_path: string;
   description?: string;
   created_at: string;
 }
@@ -30,6 +31,7 @@ export default function ProjectFilesModal({
   const [files, setFiles] = useState<ProjectFile[]>([]);
   const [uploading, setUploading] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [description, setDescription] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Load files when modal opens
@@ -91,6 +93,7 @@ export default function ProjectFilesModal({
         file_size: file.size,
         file_url: publicUrl,
         storage_path: fileName,
+        description: description.trim() || null,
         uploaded_by: user.id,
       });
 
@@ -102,6 +105,7 @@ export default function ProjectFilesModal({
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
       }
+      setDescription('');
     } catch (error) {
       console.error('Error uploading file:', error);
       alert('Failed to upload file');
@@ -165,13 +169,25 @@ export default function ProjectFilesModal({
         </div>
 
         {/* Upload Section */}
-        <div className="p-6 border-b border-gray-200 dark:border-gray-700">
+        <div className="p-6 border-b border-gray-200 dark:border-gray-700 space-y-3">
           <input
             ref={fileInputRef}
             type="file"
             onChange={handleUpload}
             className="hidden"
           />
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              Description (optional)
+            </label>
+            <input
+              type="text"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="What is this file for?"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:ring-2 focus:ring-green-500 dark:focus:ring-green-400 focus:border-transparent"
+            />
+          </div>
           <button
             onClick={() => fileInputRef.current?.click()}
             disabled={uploading}
@@ -206,6 +222,11 @@ export default function ProjectFilesModal({
                       <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
                         {file.file_name}
                       </p>
+                      {file.description && (
+                        <p className="text-xs text-gray-600 dark:text-gray-300 truncate">
+                          {file.description}
+                        </p>
+                      )}
                       <p className="text-xs text-gray-500 dark:text-gray-400">
                         {formatFileSize(file.file_size)} •{' '}
                         {new Date(file.created_at).toLocaleDateString()}

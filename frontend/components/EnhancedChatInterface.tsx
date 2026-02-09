@@ -567,7 +567,6 @@ export default function EnhancedChatInterface({
           <input
             ref={fileInputRef}
             type="file"
-            accept=".kml,.kmz"
             onChange={handleFileSelect}
             className="hidden"
           />
@@ -577,7 +576,7 @@ export default function EnhancedChatInterface({
             onClick={() => fileInputRef.current?.click()}
             disabled={sending}
             className="px-4 h-[44px] bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 rounded-xl disabled:cursor-not-allowed transition-all duration-200 flex items-center justify-center shadow-md hover:shadow-lg active:scale-95"
-            title="Upload KML file"
+            title="Upload file"
           >
             <Paperclip className="w-5 h-5" />
           </button>
