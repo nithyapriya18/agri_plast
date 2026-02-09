@@ -37,6 +37,8 @@ export default function DashboardPage() {
   const [selectedProjects, setSelectedProjects] = useState<Set<string>>(new Set());
   const [editingField, setEditingField] = useState<{ projectId: string; field: string } | null>(null);
   const [editValues, setEditValues] = useState<Record<string, any>>({});
+  const [filesModalOpen, setFilesModalOpen] = useState(false);
+  const [selectedProjectForFiles, setSelectedProjectForFiles] = useState<Project | null>(null);
 
   useEffect(() => {
     loadUserAndProjects();
