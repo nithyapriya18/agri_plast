@@ -112,18 +112,24 @@ export class PolyhouseOptimizerV2 {
     // Generate candidate sizes (from large to small for cost efficiency)
     const allSizes = this.generateCandidateSizes();
 
-    // STRATEGY: Place FEWER, LARGER polyhouses (like manual design with only 6-15 structures)
-    // DSL rule: Each polyhouse can be up to 1 hectare (10,000 sqm) max
-    // Prioritize the LARGEST possible polyhouses (close to 1 hectare) for maximum efficiency
+    // DSL OPTIMIZATION STRATEGY (Priority Order):
+    // 1. BUILD BIGGEST POLYHOUSES FIRST (maximize to 1 hectare)
+    // 2. UNIFORM ORIENTATION (same direction for all - critical for cost)
+    // 3. SUN ORIENTATION (mandatory for crop growth)
+    // 4. EASE OF ACCESS (3m pathways, straight corridors)
+    // 5. COST MINIMIZATION (fewer, larger, uniform = cheaper)
+    // 6. SPACE UTILIZATION (60-65% target)
+    // 7. Fill with smaller polyhouses ONLY if needed
     const landArea = this.landArea.area;
-    const strategyName = "MAXIMUM SIZE POLYHOUSES (6-15 structures, 8000-10000 sqm each)";
+    const strategyName = "BIGGEST FIRST + UNIFORM ORIENTATION (5-10 structures @ 0.8-1.0 ha each)";
 
-    // Use ONLY the largest sizes (8000-10000 sqm) - prioritize 1 hectare polyhouses
+    // Use ONLY the largest sizes (8000-10000 sqm) - BUILD BIGGEST FIRST
     const minAreaForFirst = this.MAX_AREA * 0.8; // 8000+ sqm polyhouses only (0.8 - 1.0 hectare)
     const largeSizes = allSizes.filter(s => s.area >= minAreaForFirst);
     const candidateSizes = largeSizes.length > 0 ? largeSizes : allSizes.slice(0, 5);
 
     console.log(`\n📐 ${strategyName} for ${(landArea/10000).toFixed(1)} hectares`);
+    console.log(`   🎯 DSL Priority: Build BIGGEST first, UNIFORM orientation, SUN aligned`);
     console.log(`   Target: ${this.TARGET_MIN_POLYHOUSES}-${this.TARGET_MAX_POLYHOUSES} polyhouses @ ${this.TARGET_COVERAGE}% coverage`);
     console.log(`   Using ${candidateSizes.length} large sizes: ${candidateSizes[0].gable}×${candidateSizes[0].gutter}=${candidateSizes[0].area}m² to ${candidateSizes[candidateSizes.length - 1].gable}×${candidateSizes[candidateSizes.length - 1].gutter}=${candidateSizes[candidateSizes.length - 1].area}m²`);
 
@@ -148,16 +154,22 @@ export class PolyhouseOptimizerV2 {
 
     // Determine orientations based on strategy
     let orientations = this.getOrientations();
-    // Enable mixed orientations for better space utilization in slanting/irregular areas
-    // This allows "stepped" placement following land contours (like manual design)
-    const allowMixedOrientations = true;
+
+    // DSL RULE: UNIFORM ORIENTATION IS CRITICAL
+    // All polyhouses MUST face the same direction for:
+    // 1. Lower construction cost (simpler build sequence)
+    // 2. Better access pathways (straight corridors)
+    // 3. Easier maintenance (uniform infrastructure)
+    // 4. Sun orientation alignment (optimal for all polyhouses)
+    // Mixed orientations increase cost and complexity significantly
+    const allowMixedOrientations = false; // ENFORCED: Uniform orientation required
 
     if (!allowMixedOrientations) {
       // Uniform orientation: Find best single orientation for all polyhouses
-      // This ensures better access road layout and infrastructure symmetry
-      console.log('🔄 Finding best uniform orientation for all polyhouses...');
+      // This ensures better access road layout, infrastructure symmetry, and cost efficiency
+      console.log('🔄 Finding best uniform orientation for all polyhouses (DSL requirement)...');
       orientations = [this.findBestGlobalOrientation(landPolygon, candidateSizes, orientations)];
-      console.log(`   Using uniform orientation: ${orientations[0]}° (better for access roads & infrastructure)`);
+      console.log(`   ✅ Using uniform orientation: ${orientations[0]}° (optimized for sun, access & cost)`);
     } else {
       // Mixed orientations: Each polyhouse can rotate independently to follow land contours
       // This enables "stepped" placement in slanting areas for maximum space utilization
