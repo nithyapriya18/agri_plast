@@ -365,6 +365,9 @@ export default function ProjectDetailPageSimplified({ params }: { params: Promis
           quotation: data.updatedPlanningResult.quotation,
           estimated_cost: data.updatedPlanningResult.quotation.totalCost,
         } : null);
+
+        // Automatically show quotation modal when quotation is updated
+        setShowQuotationModal(true);
       }
 
       // Save chat message to database
