@@ -26,6 +26,8 @@ interface Project {
   updated_at: string;
   version_name?: string | null;
   version?: number;
+  parent_project_id?: string | null;
+  is_latest?: boolean;
 }
 
 export default function DashboardPage() {

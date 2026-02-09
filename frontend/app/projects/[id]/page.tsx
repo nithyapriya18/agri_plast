@@ -43,6 +43,10 @@ interface Project {
   customer_address?: string | null;
   created_at: string;
   updated_at: string;
+  parent_project_id?: string | null;
+  version?: number;
+  version_name?: string | null;
+  is_latest?: boolean;
 }
 
 export default function ProjectDetailPageSimplified({ params }: { params: Promise<{ id: string }> }) {
@@ -593,8 +597,8 @@ export default function ProjectDetailPageSimplified({ params }: { params: Promis
         const { generateProjectPDF } = await import('@/lib/pdfExport');
         await generateProjectPDF({
           projectName: project.name,
-          customerName: project.customer_name,
-          customerEmail: project.customer_email,
+          customerName: project.customer_name ?? undefined,
+          customerEmail: project.customer_email ?? undefined,
           locationName: project.location_name || 'Unknown Location',
           landAreaSqm: project.land_area_sqm,
           polyhouseCount: project.polyhouse_count,
