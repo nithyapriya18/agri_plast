@@ -63,10 +63,10 @@ export class PolyhouseOptimizerV2 {
   // Industry-standard dimensions
   private readonly GABLE_MODULE = 8;     // 8m gable bay
   private readonly GUTTER_MODULE = 4;    // 4m gutter bay
-  private readonly MAX_AREA = 10000;     // 10,000 sqm = 1 hectare
+  private readonly MAX_AREA = 10000;     // 10,000 sqm = 1 hectare (DSL max)
   private readonly CORRIDOR_WIDTH = 3;   // 3m between polyhouses for better access
-  private readonly TARGET_MIN_POLYHOUSES = 6;  // Minimum 6 polyhouses (like manual design)
-  private readonly TARGET_MAX_POLYHOUSES = 15; // Maximum 15 polyhouses
+  private readonly TARGET_MIN_POLYHOUSES = 5;  // Minimum 5 polyhouses (1 hectare each)
+  private readonly TARGET_MAX_POLYHOUSES = 10; // Maximum 10 polyhouses
   private readonly TARGET_COVERAGE = 65;       // Target 65% coverage (industry standard)
 
   constructor(landArea: LandArea, config: PolyhouseConfiguration, terrainData?: any) {
@@ -113,14 +113,15 @@ export class PolyhouseOptimizerV2 {
     const allSizes = this.generateCandidateSizes();
 
     // STRATEGY: Place FEWER, LARGER polyhouses (like manual design with only 6-15 structures)
-    // Manual design shows 6 large polyhouses (~5000-6000 sqm each) is optimal
+    // DSL rule: Each polyhouse can be up to 1 hectare (10,000 sqm) max
+    // Prioritize the LARGEST possible polyhouses (close to 1 hectare) for maximum efficiency
     const landArea = this.landArea.area;
-    const strategyName = "FEWER LARGE POLYHOUSES (6-15 structures, 5000-10000 sqm each)";
+    const strategyName = "MAXIMUM SIZE POLYHOUSES (6-15 structures, 8000-10000 sqm each)";
 
-    // Use ONLY the largest sizes (5000-10000 sqm) for maximum cost efficiency
-    const minAreaForFirst = this.MAX_AREA * 0.5; // 5000+ sqm polyhouses only
+    // Use ONLY the largest sizes (8000-10000 sqm) - prioritize 1 hectare polyhouses
+    const minAreaForFirst = this.MAX_AREA * 0.8; // 8000+ sqm polyhouses only (0.8 - 1.0 hectare)
     const largeSizes = allSizes.filter(s => s.area >= minAreaForFirst);
-    const candidateSizes = largeSizes.length > 0 ? largeSizes : allSizes.slice(0, 10);
+    const candidateSizes = largeSizes.length > 0 ? largeSizes : allSizes.slice(0, 5);
 
     console.log(`\n📐 ${strategyName} for ${(landArea/10000).toFixed(1)} hectares`);
     console.log(`   Target: ${this.TARGET_MIN_POLYHOUSES}-${this.TARGET_MAX_POLYHOUSES} polyhouses @ ${this.TARGET_COVERAGE}% coverage`);
