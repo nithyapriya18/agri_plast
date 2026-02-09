@@ -1,7 +1,7 @@
 {
-  "buildCommand": "rm -rf .next node_modules/.cache && npm run build",
+  "buildCommand": "npm run build",
   "devCommand": "npm run dev",
-  "installCommand": "rm -rf node_modules && npm install",
+  "installCommand": "npm ci",
   "framework": "nextjs",
   "regions": ["iad1"]
 }
