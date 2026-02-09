@@ -37,6 +37,10 @@ interface Project {
   terrain_analysis: any;
   status: string;
   preferences_snapshot: any | null;
+  customer_name?: string | null;
+  customer_email?: string | null;
+  customer_phone?: string | null;
+  customer_address?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -410,6 +414,10 @@ export default function ProjectDetailPageSimplified({ params }: { params: Promis
           status: 'draft',
           is_latest: true,
           terrain_analysis: project.terrain_analysis,
+          customer_name: project.customer_name,
+          customer_email: project.customer_email,
+          customer_phone: project.customer_phone,
+          customer_address: project.customer_address,
         })
         .select()
         .single();
@@ -423,7 +431,26 @@ export default function ProjectDetailPageSimplified({ params }: { params: Promis
         .eq('id', project.id);
 
       setHasUnsavedChanges(false);
-      router.push(`/projects/${data.id}`);
+
+      // Update current project to the new version (stay on same page, don't redirect)
+      setProject(data);
+
+      // Ask for customer info in chat if not provided
+      if (!data.customer_name || !data.customer_email) {
+        const assistantMessage: ConversationMessage = {
+          role: 'assistant',
+          content: '✅ Version saved successfully!\n\nWould you like to add customer information for this project?\n\nI can help you set:\n- Customer name\n- Email address\n- Phone number\n- Site address\n\nJust let me know the details, or you can skip this for now.',
+          timestamp: new Date(),
+        };
+        setConversationHistory(prev => [...prev, assistantMessage]);
+
+        // Save this message to database
+        await supabase.from('chat_messages').insert({
+          project_id: data.id,
+          role: 'assistant',
+          content: assistantMessage.content,
+        });
+      }
     } catch (error) {
       console.error('Error saving changes:', error);
       alert('Failed to save changes: ' + (error as Error).message);

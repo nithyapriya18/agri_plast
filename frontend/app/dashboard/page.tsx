@@ -17,6 +17,10 @@ interface Project {
   utilization_percentage: number;
   estimated_cost: number;
   status: string;
+  customer_name?: string | null;
+  customer_email?: string | null;
+  customer_phone?: string | null;
+  customer_address?: string | null;
   created_at: string;
   updated_at: string;
   version_name?: string | null;
@@ -31,6 +35,8 @@ export default function DashboardPage() {
   const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set());
   const [projectVersions, setProjectVersions] = useState<Record<string, Project[]>>({});
   const [selectedProjects, setSelectedProjects] = useState<Set<string>>(new Set());
+  const [editingField, setEditingField] = useState<{ projectId: string; field: string } | null>(null);
+  const [editValues, setEditValues] = useState<Record<string, any>>({});
 
   useEffect(() => {
     loadUserAndProjects();
@@ -130,6 +136,41 @@ export default function DashboardPage() {
     } catch (error) {
       console.error('Error deleting projects:', error);
       alert('Failed to delete some projects');
+    }
+  };
+
+  const handleStartEdit = (projectId: string, field: string, currentValue: any) => {
+    setEditingField({ projectId, field });
+    setEditValues({ ...editValues, [`${projectId}-${field}`]: currentValue || '' });
+  };
+
+  const handleCancelEdit = () => {
+    setEditingField(null);
+    setEditValues({});
+  };
+
+  const handleSaveEdit = async (projectId: string, field: string) => {
+    try {
+      const supabase = createClient();
+      const value = editValues[`${projectId}-${field}`];
+
+      const { error } = await supabase
+        .from('projects')
+        .update({ [field]: value })
+        .eq('id', projectId);
+
+      if (error) throw error;
+
+      // Update local state
+      setProjects(projects.map(p =>
+        p.id === projectId ? { ...p, [field]: value } : p
+      ));
+
+      setEditingField(null);
+      setEditValues({});
+    } catch (error) {
+      console.error('Error updating project:', error);
+      alert('Failed to update project');
     }
   };
 
