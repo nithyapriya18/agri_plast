@@ -56,13 +56,27 @@ export async function handleChat(req: Request, res: Response) {
 
       let polyhouses;
 
-      // Check if user wants to maintain current polyhouse count (not asking for more/maximum coverage)
+      // Check if significant configuration changed (requires re-optimization)
+      const hasSignificantConfigChange =
+        result.updatedConfig.minimumBlocksPerPolyhouse !== undefined ||
+        result.updatedConfig.terrain?.ignoreRestrictedZones !== undefined ||
+        result.updatedConfig._maximizeCoverage ||
+        result.updatedConfig.minSideLength !== undefined ||
+        result.updatedConfig.minCornerDistance !== undefined ||
+        result.updatedConfig.polyhouseGap !== undefined;
+
+      // Check if user wants to add more polyhouses
+      const wantsMorePolyhouses =
+        message.toLowerCase().includes('add') ||
+        message.toLowerCase().includes('more') ||
+        message.toLowerCase().includes('maximum') ||
+        message.toLowerCase().includes('max') ||
+        message.toLowerCase().includes('fill');
+
+      // Only maintain current count if just changing orientation with no other config changes
       const maintainCurrentCount =
-        !message.toLowerCase().includes('add') &&
-        !message.toLowerCase().includes('more') &&
-        !message.toLowerCase().includes('maximum') &&
-        !message.toLowerCase().includes('max') &&
-        !message.toLowerCase().includes('fill') &&
+        !hasSignificantConfigChange &&
+        !wantsMorePolyhouses &&
         currentPlan.polyhouses.length > 0;
 
       if (maintainCurrentCount) {
@@ -70,7 +84,7 @@ export async function handleChat(req: Request, res: Response) {
         // Keep the current polyhouses - user just wants to modify orientation or other properties
         polyhouses = currentPlan.polyhouses;
       } else {
-        console.log('Re-running full optimization');
+        console.log('Re-running full optimization with updated configuration');
         // Re-run optimization with V2 (maximum-sized polyhouses)
         const { PolyhouseOptimizerV2 } = await import('../services/optimizerV2');
         const optimizer = new PolyhouseOptimizerV2(currentPlan.landArea, updatedConfiguration);
