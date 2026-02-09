@@ -467,6 +467,16 @@ export default function ProjectDetailPageSimplified({ params }: { params: Promis
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('User not authenticated');
 
+      // Calculate version info
+      const rootId = project.parent_project_id || project.id;
+      const newVersion = (project.version || 1) + 1;
+
+      // Mark all versions in this project chain as not latest
+      await supabase
+        .from('projects')
+        .update({ is_latest: false })
+        .or(`id.eq.${rootId},parent_project_id.eq.${rootId}`);
+
       // Create new version
       const { data, error } = await supabase
         .from('projects')
@@ -474,7 +484,9 @@ export default function ProjectDetailPageSimplified({ params }: { params: Promis
           user_id: user.id,
           name: project.name,
           description: commitNote.trim(),
-          parent_project_id: project.id,
+          parent_project_id: rootId,
+          version: newVersion,
+          version_name: commitNote.trim(),
           land_boundary: project.land_boundary,
           land_area_sqm: project.land_area_sqm,
           polyhouse_count: project.polyhouse_count,
@@ -496,12 +508,6 @@ export default function ProjectDetailPageSimplified({ params }: { params: Promis
         .single();
 
       if (error) throw error;
-
-      // Mark old version as not latest
-      await supabase
-        .from('projects')
-        .update({ is_latest: false })
-        .eq('id', project.id);
 
       setHasUnsavedChanges(false);
 

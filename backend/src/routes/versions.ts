@@ -24,10 +24,10 @@ versionsRouter.get('/:projectId/versions', async (req: Request, res: Response) =
     // Root ID is either the parent or this project itself (if it's v1)
     const rootId = project.parent_project_id || projectId;
 
-    // Get all versions (root + all children)
+    // Get all versions (root + all children) with all necessary fields for display
     const { data: versions, error: versionsError } = await supabase
       .from('projects')
-      .select('id, version, version_name, created_at, is_latest')
+      .select('id, version, version_name, created_at, is_latest, land_area_sqm, polyhouse_count, utilization_percentage, estimated_cost, status')
       .or(`id.eq.${rootId},parent_project_id.eq.${rootId}`)
       .order('version', { ascending: false });
 
