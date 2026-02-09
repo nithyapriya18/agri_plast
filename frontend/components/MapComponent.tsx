@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { GoogleMap, DrawingManager, Marker, Polygon, Autocomplete } from '@react-google-maps/api';
 import { Coordinate, Polyhouse } from '@shared/types';
-import { Search } from 'lucide-react';
+import { Search, Edit3 } from 'lucide-react';
 
 interface MapComponentProps {
   landBoundary: Coordinate[];
@@ -46,6 +46,7 @@ export default function MapComponent({
   const [searchInput, setSearchInput] = useState('');
   const [hoveredPolyhouse, setHoveredPolyhouse] = useState<number | null>(null);
   const hasInitiallyFitBounds = useRef(false);
+  const [isDrawingModeActive, setIsDrawingModeActive] = useState(false);
 
   const onLoad = useCallback((map: google.maps.Map) => {
     mapRef.current = map;
@@ -57,12 +58,12 @@ export default function MapComponent({
     setMap(null);
   }, []);
 
-  // Aggressive cleanup: Remove all drawing controls when polyhouses exist
+  // Aggressive cleanup: Remove all drawing controls when polyhouses exist or drawing mode is disabled
   useEffect(() => {
     if (!map) return;
 
-    // If polyhouses exist, forcibly remove any drawing manager
-    if (polyhouses.length > 0) {
+    // If polyhouses exist or drawing mode is not active, forcibly remove any drawing manager
+    if (polyhouses.length > 0 || !isDrawingModeActive) {
       if (drawingManager) {
         drawingManager.setDrawingMode(null);
         drawingManager.setMap(null);
@@ -83,7 +84,7 @@ export default function MapComponent({
         });
       }
     }
-  }, [map, polyhouses.length, drawingManager]);
+  }, [map, polyhouses.length, drawingManager, isDrawingModeActive]);
 
   // Cleanup drawing manager when edit mode is off or land boundary exists
   useEffect(() => {
@@ -91,19 +92,33 @@ export default function MapComponent({
       drawingManager.setDrawingMode(null);
       drawingManager.setMap(null);
       setDrawingManager(null);
+      setIsDrawingModeActive(false);
     }
   }, [editMode, landBoundary, drawingManager]);
 
   // Handle drawing manager load
   const onDrawingManagerLoad = useCallback((drawingManager: google.maps.drawing.DrawingManager) => {
     // Don't set drawing manager if polyhouses already exist
-    if (polyhouses.length > 0) {
+    if (polyhouses.length > 0 || !isDrawingModeActive) {
       drawingManager.setDrawingMode(null);
       drawingManager.setMap(null);
       return;
     }
     setDrawingManager(drawingManager);
-  }, [polyhouses.length]);
+  }, [polyhouses.length, isDrawingModeActive]);
+
+  // Handle activate drawing mode
+  const handleActivateDrawing = useCallback(() => {
+    if (polyhouses.length > 0) {
+      alert('Cannot draw when polyhouses are already placed. Please clear polyhouses first.');
+      return;
+    }
+    if (landBoundary && landBoundary.length > 0) {
+      alert('Land boundary already exists. Please clear it first if you want to redraw.');
+      return;
+    }
+    setIsDrawingModeActive(true);
+  }, [polyhouses.length, landBoundary]);
 
   // Handle polygon complete
   const onPolygonComplete = useCallback((newPolygon: google.maps.Polygon) => {
@@ -127,10 +142,11 @@ export default function MapComponent({
     setPolygon(newPolygon);
     onBoundaryComplete(coordinates);
 
-    // Switch drawing manager to select mode after drawing
+    // Switch drawing manager to select mode after drawing and deactivate drawing mode
     if (drawingManager) {
       drawingManager.setDrawingMode(null);
     }
+    setIsDrawingModeActive(false);
   }, [polygon, onBoundaryComplete, drawingManager]);
 
   // Load existing land boundary
@@ -432,8 +448,21 @@ export default function MapComponent({
           </div>
         )}
 
-        {/* Drawing Manager - Only show if no polyhouses exist and in edit mode */}
-        {editMode && polyhouses.length === 0 && (!landBoundary || landBoundary.length === 0) && typeof google !== 'undefined' ? (
+        {/* Draw Boundary Button - Only show when no polyhouses and no existing boundary */}
+        {editMode && polyhouses.length === 0 && (!landBoundary || landBoundary.length === 0) && !isDrawingModeActive && (
+          <div className="absolute top-20 left-4 z-10">
+            <button
+              onClick={handleActivateDrawing}
+              className="flex items-center gap-2 px-4 py-3 bg-agriplast-green-600 hover:bg-agriplast-green-700 text-white font-medium rounded-lg shadow-lg transition-colors"
+            >
+              <Edit3 className="w-5 h-5" />
+              Draw Land Boundary
+            </button>
+          </div>
+        )}
+
+        {/* Drawing Manager - Only show when explicitly activated via button */}
+        {isDrawingModeActive && editMode && polyhouses.length === 0 && (!landBoundary || landBoundary.length === 0) && typeof google !== 'undefined' ? (
           <DrawingManager
             onLoad={onDrawingManagerLoad}
             onPolygonComplete={onPolygonComplete}
