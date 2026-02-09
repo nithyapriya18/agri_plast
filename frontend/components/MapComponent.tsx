@@ -57,6 +57,14 @@ export default function MapComponent({
     setMap(null);
   }, []);
 
+  // Cleanup drawing manager when not in edit mode or when polyhouses exist
+  useEffect(() => {
+    if (drawingManager && (!editMode || polyhouses.length > 0)) {
+      drawingManager.setMap(null);
+      setDrawingManager(null);
+    }
+  }, [editMode, polyhouses.length, drawingManager]);
+
   // Handle drawing manager load
   const onDrawingManagerLoad = useCallback((drawingManager: google.maps.drawing.DrawingManager) => {
     setDrawingManager(drawingManager);
@@ -112,6 +120,8 @@ export default function MapComponent({
       fillOpacity: 0.15,
       editable: canEdit,
       draggable: false,
+      clickable: canEdit, // Make non-interactive when not editable
+      zIndex: 1, // Keep land boundary below polyhouses
     });
 
     newPolygon.setMap(map);
@@ -270,6 +280,7 @@ export default function MapComponent({
               strokeWeight: isHovered ? 4 : 3,
               fillColor: '#10b981',
               fillOpacity: isHovered ? 0.3 : 0.15,
+              zIndex: 10, // Above land boundary
             }}
             onMouseOver={() => setHoveredPolyhouse(polyhouseIndex)}
             onMouseOut={() => setHoveredPolyhouse(null)}
@@ -325,7 +336,10 @@ export default function MapComponent({
                   strokeWeight: 2,
                   fillColor: '#10b981',
                   fillOpacity: 0.7,
+                  zIndex: 11, // Above polyhouse outline
                 }}
+                onMouseOver={() => setHoveredPolyhouse(polyhouseIndex)}
+                onMouseOut={() => setHoveredPolyhouse(null)}
               />
             );
           }
@@ -336,7 +350,7 @@ export default function MapComponent({
   };
 
   return (
-    <div className="relative w-full h-full">
+    <div className="relative w-full h-full" style={{ cursor: polyhouses.length > 0 ? 'default' : 'inherit' }}>
       <GoogleMap
         mapContainerStyle={mapContainerStyle}
         center={defaultCenter}
@@ -351,6 +365,8 @@ export default function MapComponent({
           },
           streetViewControl: false,
           fullscreenControl: true,
+          draggableCursor: polyhouses.length > 0 ? 'default' : 'crosshair',
+          draggingCursor: 'move',
         }}
       >
         {/* Search Box */}
@@ -378,8 +394,8 @@ export default function MapComponent({
           </div>
         )}
 
-        {/* Drawing Manager - Only show if no polyhouses exist */}
-        {(!landBoundary || landBoundary.length === 0) && polyhouses.length === 0 && typeof google !== 'undefined' ? (
+        {/* Drawing Manager - Only show if no polyhouses exist and in edit mode */}
+        {editMode && polyhouses.length === 0 && (!landBoundary || landBoundary.length === 0) && typeof google !== 'undefined' ? (
           <DrawingManager
             onLoad={onDrawingManagerLoad}
             onPolygonComplete={onPolygonComplete}
@@ -436,7 +452,7 @@ export default function MapComponent({
 
       {/* Polyhouse Hover Tooltip */}
       {hoveredPolyhouse !== null && polyhouses[hoveredPolyhouse] && (
-        <div className="absolute bottom-6 left-6 z-10 bg-white dark:bg-gray-800 rounded-lg shadow-lg p-4 border border-gray-200 dark:border-gray-700 max-w-xs">
+        <div className="absolute bottom-6 left-6 z-30 bg-white dark:bg-gray-800 rounded-lg shadow-2xl p-4 border-2 border-green-500 dark:border-green-600 max-w-xs pointer-events-none">
           <div className="text-sm">
             <div className="font-bold text-gray-900 dark:text-white mb-2 text-base">
               {polyhouses[hoveredPolyhouse].label || `Polyhouse ${hoveredPolyhouse + 1}`}

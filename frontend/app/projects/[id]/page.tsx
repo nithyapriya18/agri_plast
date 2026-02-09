@@ -9,7 +9,7 @@ import QuotationModal from '@/components/QuotationModal';
 import EnhancedChatInterface from '@/components/EnhancedChatInterface';
 import DSLViewer, { DSLQuickActions } from '@/components/DSLViewer';
 import { createClient } from '@/lib/supabase/client';
-import { Loader2, Download, Save, Edit3, Trash2 } from 'lucide-react';
+import { Loader2, Download, Save, Edit3, Trash2, X } from 'lucide-react';
 
 const MapComponent = dynamic(() => import('@/components/MapComponent'), {
   ssr: false,
@@ -57,8 +57,18 @@ export default function ProjectDetailPageSimplified({ params }: { params: Promis
   const [showQuotationModal, setShowQuotationModal] = useState(false);
   const [showDSL, setShowDSL] = useState(false);
   const [editMode, setEditMode] = useState(false);
+
+  // Auto-disable edit mode when polyhouses are loaded
+  useEffect(() => {
+    if (project?.polyhouses && project.polyhouses.length > 0) {
+      setEditMode(false);
+    }
+  }, [project?.polyhouses]);
   const [showCommitModal, setShowCommitModal] = useState(false);
   const [commitNote, setCommitNote] = useState('');
+  const [isEditingProjectInfo, setIsEditingProjectInfo] = useState(false);
+  const [editedProjectName, setEditedProjectName] = useState('');
+  const [editedProjectDescription, setEditedProjectDescription] = useState('');
 
   // Chat state
   const [conversationHistory, setConversationHistory] = useState<ConversationMessage[]>([]);
@@ -73,12 +83,12 @@ export default function ProjectDetailPageSimplified({ params }: { params: Promis
     loadProject();
   }, [id]);
 
-  // Auto-load chat messages on mount
+  // Auto-load chat messages on mount (only when project ID changes, not when project data changes)
   useEffect(() => {
-    if (project) {
+    if (project?.id) {
       loadChatMessages();
     }
-  }, [project]);
+  }, [project?.id]);
 
   const loadProject = async () => {
     try {
@@ -492,8 +502,8 @@ export default function ProjectDetailPageSimplified({ params }: { params: Promis
 
       setHasUnsavedChanges(false);
 
-      // Update current project to the new version (stay on same page, don't redirect)
-      setProject(data);
+      // Redirect to the new version's URL
+      router.push(`/projects/${data.id}`);
 
       // Ask for customer info in chat if not provided
       if (!data.customer_name || !data.customer_email) {
@@ -611,6 +621,48 @@ export default function ProjectDetailPageSimplified({ params }: { params: Promis
     }
   };
 
+  const handleStartEditingProjectInfo = () => {
+    if (!project) return;
+    setEditedProjectName(project.name);
+    setEditedProjectDescription(project.description || '');
+    setIsEditingProjectInfo(true);
+  };
+
+  const handleCancelEditingProjectInfo = () => {
+    setIsEditingProjectInfo(false);
+    setEditedProjectName('');
+    setEditedProjectDescription('');
+  };
+
+  const handleSaveProjectInfo = async () => {
+    if (!project || !editedProjectName.trim()) return;
+
+    try {
+      const supabase = createClient();
+      const { error } = await supabase
+        .from('projects')
+        .update({
+          name: editedProjectName.trim(),
+          description: editedProjectDescription.trim() || null,
+        })
+        .eq('id', project.id);
+
+      if (error) throw error;
+
+      // Update local state
+      setProject(prev => prev ? {
+        ...prev,
+        name: editedProjectName.trim(),
+        description: editedProjectDescription.trim() || null,
+      } : null);
+
+      setIsEditingProjectInfo(false);
+    } catch (error) {
+      console.error('Error updating project info:', error);
+      alert('Failed to update project information');
+    }
+  };
+
   // Handle DSL quick actions
   const handleShowPricing = () => {
     setShowDSL(true);
@@ -647,16 +699,75 @@ export default function ProjectDetailPageSimplified({ params }: { params: Promis
       {/* Top Bar */}
       <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3 flex-shrink-0">
         <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-lg font-bold text-gray-900 dark:text-white">
-              {project.name}
-            </h1>
-            <p className="text-xs text-gray-500 dark:text-gray-400">
-              {project.polyhouse_count} polyhouses • {project.utilization_percentage.toFixed(1)}% utilization • ₹{project.estimated_cost.toLocaleString('en-IN')}
-            </p>
+          <div className="flex-1 min-w-0">
+            {isEditingProjectInfo ? (
+              <div className="space-y-2 pr-4">
+                <input
+                  type="text"
+                  value={editedProjectName}
+                  onChange={(e) => setEditedProjectName(e.target.value)}
+                  className="w-full px-2 py-1 text-lg font-bold border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-agriplast-green-500"
+                  placeholder="Project name"
+                  autoFocus
+                />
+                <input
+                  type="text"
+                  value={editedProjectDescription}
+                  onChange={(e) => setEditedProjectDescription(e.target.value)}
+                  className="w-full px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-agriplast-green-500"
+                  placeholder="Description (optional)"
+                />
+                <div className="flex gap-2">
+                  <button
+                    onClick={handleSaveProjectInfo}
+                    className="px-3 py-1 text-xs bg-agriplast-green-600 hover:bg-agriplast-green-700 text-white rounded font-medium"
+                  >
+                    Save
+                  </button>
+                  <button
+                    onClick={handleCancelEditingProjectInfo}
+                    className="px-3 py-1 text-xs bg-gray-200 hover:bg-gray-300 dark:bg-gray-600 dark:hover:bg-gray-500 text-gray-700 dark:text-gray-200 rounded"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-start gap-2">
+                <div className="flex-1 min-w-0">
+                  <h1 className="text-lg font-bold text-gray-900 dark:text-white truncate">
+                    {project.name}
+                  </h1>
+                  {project.description && (
+                    <p className="text-xs text-gray-600 dark:text-gray-300 truncate">
+                      {project.description}
+                    </p>
+                  )}
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    {project.polyhouse_count} polyhouses • {project.utilization_percentage.toFixed(1)}% utilization • ₹{project.estimated_cost.toLocaleString('en-IN')}
+                  </p>
+                </div>
+                <button
+                  onClick={handleStartEditingProjectInfo}
+                  className="p-1 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                  title="Edit project name and description"
+                >
+                  <Edit3 className="w-4 h-4" />
+                </button>
+              </div>
+            )}
           </div>
 
           <div className="flex items-center gap-2">
+            {/* Close Button */}
+            <button
+              onClick={() => router.push('/dashboard')}
+              className="p-2 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors duration-150"
+              title="Close and return to dashboard"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
             {/* Edit Mode Toggle */}
             <button
               onClick={() => setEditMode(!editMode)}
