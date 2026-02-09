@@ -54,10 +54,28 @@ export async function handleChat(req: Request, res: Response) {
         ...result.updatedConfig,
       };
 
-      // Re-run optimization with V2 (maximum-sized polyhouses)
-      const { PolyhouseOptimizerV2 } = await import('../services/optimizerV2');
-      const optimizer = new PolyhouseOptimizerV2(currentPlan.landArea, updatedConfiguration);
-      const polyhouses = await optimizer.optimize();
+      let polyhouses;
+
+      // Check if user wants to maintain current polyhouse count (not asking for more/maximum coverage)
+      const maintainCurrentCount =
+        !message.toLowerCase().includes('add') &&
+        !message.toLowerCase().includes('more') &&
+        !message.toLowerCase().includes('maximum') &&
+        !message.toLowerCase().includes('max') &&
+        !message.toLowerCase().includes('fill') &&
+        currentPlan.polyhouses.length > 0;
+
+      if (maintainCurrentCount) {
+        console.log(`User wants to modify existing ${currentPlan.polyhouses.length} polyhouses, not re-optimize`);
+        // Keep the current polyhouses - user just wants to modify orientation or other properties
+        polyhouses = currentPlan.polyhouses;
+      } else {
+        console.log('Re-running full optimization');
+        // Re-run optimization with V2 (maximum-sized polyhouses)
+        const { PolyhouseOptimizerV2 } = await import('../services/optimizerV2');
+        const optimizer = new PolyhouseOptimizerV2(currentPlan.landArea, updatedConfiguration);
+        polyhouses = await optimizer.optimize();
+      }
 
       // Generate new quotation
       const quotation = await generateQuotation(
