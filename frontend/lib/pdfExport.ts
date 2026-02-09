@@ -5,6 +5,8 @@ import { Polyhouse } from '@shared/types';
 export interface ExportData {
   projectName: string;
   locationName: string;
+  customerName?: string;
+  customerEmail?: string;
   landAreaSqm: number;
   polyhouseCount: number;
   totalCoverageSqm: number;
@@ -12,6 +14,7 @@ export interface ExportData {
   estimatedCost: number;
   polyhouses: Polyhouse[];
   quotation: any;
+  landBoundary?: any;
   createdAt: string;
 }
 
@@ -94,11 +97,16 @@ export async function generateProjectPDF(data: ExportData): Promise<void> {
     }
 
     const coverage = ((ph.area / data.landAreaSqm) * 100).toFixed(1);
-    const dimensions = ph.dimensions ? `${ph.dimensions.length.toFixed(1)}m × ${ph.dimensions.width.toFixed(1)}m` : 'N/A';
+    const gableLength = ph.gableLength || ph.dimensions?.length || 0;
+    const gutterWidth = ph.gutterWidth || ph.dimensions?.width || 0;
+    const dimensions = `${gableLength.toFixed(1)}m × ${gutterWidth.toFixed(1)}m`;
+
+    // Calculate number of blocks (8m x 4m)
+    const numBlocks = Math.floor(gableLength / 8) * Math.floor(gutterWidth / 4);
 
     pdf.setTextColor(0, 0, 0);
     pdf.text(ph.label || `P${index + 1}`, margin + 6, yPosition);
-    pdf.text(ph.blocks.length.toString(), margin + 28, yPosition);
+    pdf.text(numBlocks.toString(), margin + 28, yPosition);
     pdf.text(ph.area.toFixed(0), margin + 52, yPosition);
     pdf.text(dimensions, margin + 85, yPosition);
     pdf.text(`${coverage}%`, margin + 132, yPosition);
@@ -164,52 +172,88 @@ export async function generateProjectPDF(data: ExportData): Promise<void> {
     pdf.setFontSize(10);
     pdf.setFont('helvetica', 'normal');
 
-    if (data.quotation.items && Array.isArray(data.quotation.items)) {
-      // Table header
-      pdf.setFillColor(240, 240, 240);
-      pdf.rect(margin, yPosition - 5, pageWidth - 2 * margin, 8, 'F');
+    if (data.quotation.items && Array.isArray(data.quotation.items) && data.quotation.items.length > 0) {
+      // Process quotation items - handle both QuotationItem and material selections
+      const flattenedItems: any[] = [];
 
-      pdf.setFont('helvetica', 'bold');
-      pdf.text('Item', margin + 3, yPosition);
-      pdf.text('Quantity', margin + 100, yPosition);
-      pdf.text('Rate', margin + 130, yPosition);
-      pdf.text('Amount', margin + 160, yPosition);
-      yPosition += 8;
-
-      pdf.setFont('helvetica', 'normal');
       data.quotation.items.forEach((item: any) => {
-        pdf.text(item.description || item.name, margin + 3, yPosition);
-        pdf.text(item.quantity?.toString() || '-', margin + 100, yPosition);
-        pdf.text(`₹${item.rate?.toLocaleString('en-IN') || '0'}`, margin + 130, yPosition);
-        pdf.text(`₹${item.amount?.toLocaleString('en-IN') || '0'}`, margin + 160, yPosition);
-        yPosition += 7;
-
-        if (yPosition > pageHeight - 30) {
-          pdf.addPage();
-          yPosition = margin;
+        if (item.materialSelections && Array.isArray(item.materialSelections)) {
+          // This is a QuotationItem with material selections
+          item.materialSelections.forEach((material: any) => {
+            flattenedItems.push({
+              description: item.description || item.category,
+              quantity: material.quantity,
+              rate: material.unitPrice,
+              amount: material.totalPrice
+            });
+          });
+        } else {
+          // This is a direct item
+          flattenedItems.push(item);
         }
       });
 
-      yPosition += 5;
+      if (flattenedItems.length > 0) {
+        // Table header
+        pdf.setFillColor(240, 240, 240);
+        pdf.rect(margin, yPosition - 5, pageWidth - 2 * margin, 8, 'F');
 
-      // Totals
+        pdf.setFont('helvetica', 'bold');
+        pdf.text('Item', margin + 3, yPosition);
+        pdf.text('Quantity', margin + 100, yPosition);
+        pdf.text('Rate', margin + 130, yPosition);
+        pdf.text('Amount', margin + 160, yPosition);
+        yPosition += 8;
+
+        pdf.setFont('helvetica', 'normal');
+        flattenedItems.forEach((item: any) => {
+          const desc = item.description || item.category || 'Item';
+          pdf.text(desc.length > 40 ? desc.substring(0, 37) + '...' : desc, margin + 3, yPosition);
+          pdf.text(item.quantity?.toString() || '-', margin + 100, yPosition);
+          pdf.text(`₹${item.rate?.toLocaleString('en-IN') || '0'}`, margin + 130, yPosition);
+          pdf.text(`₹${item.amount?.toLocaleString('en-IN') || '0'}`, margin + 160, yPosition);
+          yPosition += 7;
+
+          if (yPosition > pageHeight - 30) {
+            pdf.addPage();
+            yPosition = margin;
+          }
+        });
+
+        yPosition += 5;
+
+        // Totals
+        pdf.setFont('helvetica', 'bold');
+        const totalCost = data.quotation.totalCost || data.estimatedCost || 0;
+        const subtotal = totalCost / 1.18; // Assuming 18% GST
+        const tax = totalCost - subtotal;
+
+        if (subtotal > 0) {
+          pdf.text('Subtotal:', margin + 130, yPosition);
+          pdf.text(`₹${Math.round(subtotal).toLocaleString('en-IN')}`, margin + 160, yPosition);
+          yPosition += 7;
+        }
+        if (tax > 0) {
+          pdf.text('GST (18%):', margin + 130, yPosition);
+          pdf.text(`₹${Math.round(tax).toLocaleString('en-IN')}`, margin + 160, yPosition);
+          yPosition += 7;
+        }
+        if (totalCost > 0) {
+          pdf.setDrawColor(0, 0, 0);
+          pdf.line(margin + 125, yPosition - 2, pageWidth - margin, yPosition - 2);
+          pdf.text('Total:', margin + 130, yPosition + 3);
+          pdf.text(`₹${totalCost.toLocaleString('en-IN')}`, margin + 160, yPosition + 3);
+        }
+      }
+    } else {
+      // Show simple total if no itemized data
+      pdf.setFont('helvetica', 'normal');
+      pdf.text('Total Estimated Cost:', margin + 3, yPosition);
+      yPosition += 7;
       pdf.setFont('helvetica', 'bold');
-      if (data.quotation.subtotal) {
-        pdf.text('Subtotal:', margin + 130, yPosition);
-        pdf.text(`₹${data.quotation.subtotal.toLocaleString('en-IN')}`, margin + 160, yPosition);
-        yPosition += 7;
-      }
-      if (data.quotation.tax) {
-        pdf.text('GST (18%):', margin + 130, yPosition);
-        pdf.text(`₹${data.quotation.tax.toLocaleString('en-IN')}`, margin + 160, yPosition);
-        yPosition += 7;
-      }
-      if (data.quotation.total) {
-        pdf.setDrawColor(0, 0, 0);
-        pdf.line(margin + 125, yPosition - 2, pageWidth - margin, yPosition - 2);
-        pdf.text('Total:', margin + 130, yPosition + 3);
-        pdf.text(`₹${data.quotation.total.toLocaleString('en-IN')}`, margin + 160, yPosition + 3);
-      }
+      pdf.setFontSize(16);
+      const totalCost = data.quotation.totalCost || data.estimatedCost || 0;
+      pdf.text(`₹${totalCost.toLocaleString('en-IN')}`, margin + 3, yPosition);
     }
   }
 
