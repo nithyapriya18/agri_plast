@@ -68,7 +68,7 @@ export default function CustomerPreferencesModal({
           {/* Structure Type - MOST IMPORTANT */}
           <div className="bg-gradient-to-r from-green-50 to-blue-50 p-4 rounded-lg border-2 border-green-200">
             <label className="block text-sm font-bold text-gray-900 mb-3">
-              🏗️ 1. What type of structure do you need?
+              1. What type of structure do you need?
             </label>
             <div className="grid grid-cols-1 gap-3">
               {[
@@ -147,9 +147,9 @@ export default function CustomerPreferencesModal({
             </label>
             <div className="grid grid-cols-3 gap-3">
               {[
-                { value: 'economy', label: 'Economy', desc: '₹200-300/sqm', icon: '💰' },
-                { value: 'standard', label: 'Standard', desc: '₹350-500/sqm', icon: '⭐' },
-                { value: 'premium', label: 'Premium', desc: '₹600+/sqm', icon: '💎' },
+                { value: 'economy', label: 'Economy', desc: '₹200-300/sqm' },
+                { value: 'standard', label: 'Standard', desc: '₹350-500/sqm' },
+                { value: 'premium', label: 'Premium', desc: '₹600+/sqm' },
               ].map((option) => (
                 <button
                   key={option.value}
@@ -161,7 +161,6 @@ export default function CustomerPreferencesModal({
                       : 'border-gray-200 hover:border-gray-300'
                   }`}
                 >
-                  <div className="text-2xl mb-1">{option.icon}</div>
                   <div className="font-medium text-gray-900">{option.label}</div>
                   <div className="text-xs text-gray-500 mt-1">{option.desc}</div>
                 </button>
@@ -230,9 +229,9 @@ export default function CustomerPreferencesModal({
             </label>
             <div className="grid grid-cols-3 gap-3">
               {[
-                { value: 'uniform', label: 'Uniform', desc: 'All same direction (90°), professional look', icon: '📐' },
-                { value: 'varied', label: 'Varied', desc: 'Two angles (90° + variant), balanced', icon: '📊' },
-                { value: 'optimized', label: 'Optimized', desc: 'Multiple angles (60°-120°), max coverage', icon: '🎯' },
+                { value: 'uniform', label: 'Uniform', desc: 'All same direction (90°), professional look' },
+                { value: 'varied', label: 'Varied', desc: 'Two angles (90° + variant), balanced' },
+                { value: 'optimized', label: 'Optimized', desc: 'Multiple angles (60°-120°), max coverage' },
               ].map((option) => (
                 <button
                   key={option.value}
@@ -244,7 +243,6 @@ export default function CustomerPreferencesModal({
                       : 'border-gray-200 hover:border-gray-300'
                   }`}
                 >
-                  <div className="text-2xl mb-1">{option.icon}</div>
                   <div className="font-medium text-gray-900">{option.label}</div>
                   <div className="text-xs text-gray-500 mt-1">{option.desc}</div>
                 </button>

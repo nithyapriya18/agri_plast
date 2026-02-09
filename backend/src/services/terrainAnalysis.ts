@@ -1,11 +1,12 @@
 /**
  * Terrain Analysis Service
- * Integrates with Copernicus satellite data (DEM, Land Cover) for real terrain analysis
+ * Uses Google Maps Elevation API for accurate elevation data
+ * Integrates with Bedrock Vision for satellite imagery analysis
  * Provides elevation, slope, water body, and vegetation detection
  */
 
 import { Coordinate } from '@shared/types';
-import { CopernicusAPI } from './copernicusAPI';
+import { GoogleElevationService } from './googleElevation';
 import { OpenStreetMapService, OSMRoad, OSMBuilding, OSMWater, OSMForest } from './openstreetmap';
 import { SatelliteImageryAnalysisService, DetectedFeature } from './satelliteImageryAnalysis';
 import * as turf from '@turf/turf';
@@ -51,28 +52,30 @@ export interface RestrictedZone {
 }
 
 export class TerrainAnalysisService {
-  private copernicusAPI: CopernicusAPI;
+  private googleElevation: GoogleElevationService;
   private osmService: OpenStreetMapService;
   private satelliteAnalysis: SatelliteImageryAnalysisService;
   private useBedrockVision: boolean;
 
   constructor() {
-    this.copernicusAPI = new CopernicusAPI();
+    const hasGoogleKey = !!process.env.GOOGLE_MAPS_API_KEY;
+
+    if (!hasGoogleKey) {
+      throw new Error('GOOGLE_MAPS_API_KEY is required for terrain analysis. Please add it to your .env file.');
+    }
+
+    this.googleElevation = new GoogleElevationService();
     this.osmService = new OpenStreetMapService();
     this.satelliteAnalysis = new SatelliteImageryAnalysisService();
-    // Enable Bedrock Vision analysis if Google Maps API key is available
-    this.useBedrockVision = !!process.env.GOOGLE_MAPS_API_KEY;
+    this.useBedrockVision = true;
 
-    if (this.useBedrockVision) {
-      console.log('✓ Bedrock Vision terrain analysis ENABLED (accurate detection)');
-    } else {
-      console.log('⚠ Bedrock Vision disabled - add GOOGLE_MAPS_API_KEY for better accuracy');
-    }
+    console.log('✓ Google Elevation API ENABLED (high-accuracy elevation data)');
+    console.log('✓ Bedrock Vision ENABLED (satellite imagery analysis)');
   }
 
   /**
    * Analyze terrain for a land area
-   * Fetches Copernicus satellite data and performs comprehensive analysis
+   * Uses Google Elevation API and Bedrock Vision for comprehensive analysis
    */
   async analyzeTerrain(
     coordinates: Coordinate[],
@@ -119,9 +122,9 @@ export class TerrainAnalysisService {
     // Only restrict: roads (govt), water bodies, and forests
     const { roads, water, forests } = await this.osmService.fetchRoadsAndBuildings(coordinates);
 
-    // Fetch REAL elevation data from Copernicus DEM
-    console.log('  📊 Fetching elevation data from Copernicus DEM...');
-    const elevationData = await this.fetchElevationData(samplingPoints);
+    // Fetch elevation data from Google Elevation API
+    console.log('  📡 Fetching elevation data from Google Elevation API...');
+    const elevationData = await this.googleElevation.fetchElevation(samplingPoints);
     console.log(`  ✓ Elevation data fetched for ${elevationData.size} points`);
 
     // Build terrain grid with all data
@@ -324,11 +327,11 @@ export class TerrainAnalysisService {
     const maxLng = Math.max(...lngs);
 
     // Determine grid spacing based on resolution
-    // Copernicus DEM is 30m resolution, so sample at appropriate intervals
+    // Google Elevation API is very accurate, sample at appropriate intervals
     const spacing = {
       low: 0.0005,    // ~50m between points
-      medium: 0.0003, // ~30m between points (matches DEM resolution)
-      high: 0.0001,   // ~10m between points (matches land cover resolution)
+      medium: 0.0003, // ~30m between points
+      high: 0.0001,   // ~10m between points
     }[resolution];
 
     const points: Coordinate[] = [];
@@ -349,19 +352,54 @@ export class TerrainAnalysisService {
   }
 
   /**
-   * Fetch elevation data from Copernicus DEM (with caching)
+   * Determine land cover type from Bedrock Vision analysis
+   * Falls back to basic classification if Vision is not available
    */
-  private async fetchElevationData(points: Coordinate[]): Promise<Map<string, number>> {
-    console.log(`  Fetching elevation data for ${points.length} points...`);
-    return await this.copernicusAPI.fetchElevation(points);
+  private determineLandCover(
+    visionFeatures: DetectedFeature[] | null,
+    coordinate: Coordinate
+  ): LandCoverType {
+    // If we have Vision analysis, use it
+    if (visionFeatures && visionFeatures.length > 0) {
+      const feature = visionFeatures.find(f =>
+        f.location.coordinates && this.pointInFeature(coordinate, f.location.coordinates)
+      );
+
+      if (feature) {
+        switch (feature.type) {
+          case 'water':
+            return LandCoverType.WATER;
+          case 'forest':
+            return LandCoverType.FOREST;
+          case 'building':
+            return LandCoverType.BUILT_UP;
+          case 'road':
+            return LandCoverType.BUILT_UP;
+          case 'agricultural':
+            return LandCoverType.CROPLAND;
+          case 'barren':
+            return LandCoverType.BARE_SOIL;
+          default:
+            return LandCoverType.CROPLAND;
+        }
+      }
+    }
+
+    // Default to cropland if no features detected
+    return LandCoverType.CROPLAND;
   }
 
   /**
-   * Fetch land cover data from Copernicus WorldCover (with caching)
+   * Check if a point is inside a feature polygon
    */
-  private async fetchLandCoverData(points: Coordinate[]): Promise<Map<string, LandCoverType>> {
-    console.log(`  Fetching land cover data for ${points.length} points...`);
-    return await this.copernicusAPI.fetchLandCover(points);
+  private pointInFeature(point: Coordinate, featureCoords: Coordinate[]): boolean {
+    try {
+      const pt = turf.point([point.lng, point.lat]);
+      const poly = turf.polygon([[...featureCoords.map(c => [c.lng, c.lat]), [featureCoords[0].lng, featureCoords[0].lat]]]);
+      return turf.booleanPointInPolygon(pt, poly);
+    } catch {
+      return false;
+    }
   }
 
   /**

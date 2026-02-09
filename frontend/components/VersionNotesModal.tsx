@@ -68,7 +68,7 @@ export default function VersionNotesModal({
 
         {/* Helper Text */}
         <p className="text-xs text-gray-500 dark:text-gray-400 mt-2 transition-colors">
-          💡 Examples: "Increased polyhouses by 20%", "Changed orientation to maximize coverage", "Adjusted spacing requirements"
+          Examples: "Increased polyhouses by 20%", "Changed orientation to maximize coverage", "Adjusted spacing requirements"
         </p>
 
         {/* Actions */}

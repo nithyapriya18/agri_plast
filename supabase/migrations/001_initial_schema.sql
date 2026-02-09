@@ -11,7 +11,8 @@ CREATE TABLE IF NOT EXISTS user_settings (
   min_corner_distance REAL DEFAULT 4.0,
   gutter_width REAL DEFAULT 2.0,
   block_width REAL DEFAULT 8.0,
-  block_height REAL DEFAULT 4.0,
+  block_height REAL DEFAULT 4.0,                                                                          2
+
   solar_orientation_enabled BOOLEAN DEFAULT true,
   avoid_water BOOLEAN DEFAULT true,
   consider_slope BOOLEAN DEFAULT false,

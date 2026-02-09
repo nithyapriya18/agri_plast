@@ -162,7 +162,10 @@ export default function DashboardPage() {
         .update({ [field]: value })
         .eq('id', projectId);
 
-      if (error) throw error;
+      if (error) {
+        console.error('Supabase error:', error);
+        throw error;
+      }
 
       // Update local state
       setProjects(projects.map(p =>
@@ -171,9 +174,10 @@ export default function DashboardPage() {
 
       setEditingField(null);
       setEditValues({});
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error updating project:', error);
-      alert('Failed to update project');
+      const errorMessage = error?.message || error?.details || 'Unknown error occurred';
+      alert(`Failed to update project: ${errorMessage}`);
     }
   };
 
@@ -377,7 +381,7 @@ export default function DashboardPage() {
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 transition-colors py-8">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8">
         {/* Bulk Actions Bar - shown when items are selected */}
         {selectedProjects.size > 0 && (
           <div className="bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-700 rounded-xl p-4 mb-4 flex items-center justify-between transition-colors">
@@ -474,15 +478,15 @@ export default function DashboardPage() {
                       className="w-4 h-4 text-green-600 bg-gray-100 dark:bg-gray-700 border-gray-300 dark:border-gray-600 rounded focus:ring-green-500 dark:focus:ring-green-400 focus:ring-2 cursor-pointer"
                     />
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-[140px]">Project</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-[130px]">Customer</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-[200px]">Project</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-[180px]">Customer</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-[110px]">Land Area</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-[90px]">Polyhouses</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-[95px]">Utilization</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-[120px]">Cost</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-[90px]">Status</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-[180px]">Version Notes</th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-[200px]">Actions</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-[100px]">Polyhouses</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-[100px]">Utilization</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-[130px]">Cost</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-[100px]">Status</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-[220px]">Version Notes</th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-[220px]">Actions</th>
                 </tr>
               </thead>
               <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700 transition-colors">
@@ -497,7 +501,7 @@ export default function DashboardPage() {
                           className="w-4 h-4 text-green-600 bg-gray-100 dark:bg-gray-700 border-gray-300 dark:border-gray-600 rounded focus:ring-green-500 dark:focus:ring-green-400 focus:ring-2 cursor-pointer"
                         />
                       </td>
-                      <td className="px-6 py-4 w-[140px]">
+                      <td className="px-6 py-4 w-[200px]">
                         <div className="flex items-center gap-2">
                           {/* Only show expand button if there are multiple versions */}
                           {(project.version || 1) > 1 ? (
@@ -534,7 +538,7 @@ export default function DashboardPage() {
                       </td>
 
                       {/* Customer Column - Editable */}
-                      <td className="px-6 py-4 text-sm w-[130px]">
+                      <td className="px-6 py-4 text-sm w-[180px]">
                         {editingField?.projectId === project.id && editingField?.field === 'customer_name' ? (
                           <div className="flex flex-col gap-1">
                             <input
@@ -567,12 +571,7 @@ export default function DashboardPage() {
                             title="Click to edit customer name"
                           >
                             {project.customer_name ? (
-                              <div>
-                                <div className="text-gray-900 dark:text-gray-100 font-medium">{project.customer_name}</div>
-                                {project.customer_email && (
-                                  <div className="text-xs text-gray-500 dark:text-gray-400">{project.customer_email}</div>
-                                )}
-                              </div>
+                              <div className="text-gray-900 dark:text-gray-100 font-medium">{project.customer_name}</div>
                             ) : (
                               <div className="text-gray-400 dark:text-gray-500 group-hover:text-gray-600 dark:group-hover:text-gray-300 italic text-xs">
                                 + Add customer
@@ -585,24 +584,24 @@ export default function DashboardPage() {
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300 transition-colors w-[110px]">
                       {project.land_area_sqm.toFixed(0)} m²
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300 transition-colors w-[90px]">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300 transition-colors w-[100px]">
                       {project.polyhouse_count}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300 transition-colors w-[95px]">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300 transition-colors w-[100px]">
                       {project.utilization_percentage.toFixed(1)}%
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300 transition-colors w-[120px]">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300 transition-colors w-[130px]">
                       ₹{project.estimated_cost.toLocaleString('en-IN')}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap w-[90px]">
+                    <td className="px-6 py-4 whitespace-nowrap w-[100px]">
                       {getStatusBadge(project.status)}
                     </td>
-                    <td className="px-6 py-4 text-sm text-gray-600 dark:text-gray-400 transition-colors w-[180px]">
+                    <td className="px-6 py-4 text-sm text-gray-600 dark:text-gray-400 transition-colors w-[220px]">
                       <div className="break-words">
                         {project.version_name || <span className="text-gray-400 dark:text-gray-500 italic">Initial version</span>}
                       </div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium w-[200px]">
+                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium w-[220px]">
                       <div className="flex items-center justify-end gap-3">
                         <Link
                           href={`/projects/${project.id}`}
@@ -664,7 +663,7 @@ export default function DashboardPage() {
                         className="bg-gray-50 dark:bg-gray-900 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors border-l-4 border-blue-400 dark:border-blue-600"
                       >
                         <td className="px-6 py-3 w-[50px]"></td>
-                        <td className="px-6 py-3 min-w-[150px] pl-16">
+                        <td className="px-6 py-3 w-[200px] pl-16">
                           <div className="flex items-center gap-2">
                             <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
@@ -680,27 +679,28 @@ export default function DashboardPage() {
                             )}
                           </div>
                         </td>
-                        <td className="px-6 py-3 whitespace-nowrap text-xs text-gray-600 dark:text-gray-400 transition-colors min-w-[120px]">
+                        <td className="px-6 py-3 whitespace-nowrap text-xs text-gray-600 dark:text-gray-400 transition-colors w-[180px]"></td>
+                        <td className="px-6 py-3 whitespace-nowrap text-xs text-gray-600 dark:text-gray-400 transition-colors w-[110px]">
                           {version.land_area_sqm?.toFixed(0) || 'N/A'} m²
                         </td>
-                        <td className="px-6 py-3 whitespace-nowrap text-xs text-gray-600 dark:text-gray-400 transition-colors min-w-[100px]">
+                        <td className="px-6 py-3 whitespace-nowrap text-xs text-gray-600 dark:text-gray-400 transition-colors w-[100px]">
                           {version.polyhouse_count || 0}
                         </td>
-                        <td className="px-6 py-3 whitespace-nowrap text-xs text-gray-600 dark:text-gray-400 transition-colors min-w-[100px]">
+                        <td className="px-6 py-3 whitespace-nowrap text-xs text-gray-600 dark:text-gray-400 transition-colors w-[100px]">
                           {version.utilization_percentage?.toFixed(1) || '0.0'}%
                         </td>
-                        <td className="px-6 py-3 whitespace-nowrap text-xs text-gray-600 dark:text-gray-400 transition-colors min-w-[130px]">
+                        <td className="px-6 py-3 whitespace-nowrap text-xs text-gray-600 dark:text-gray-400 transition-colors w-[130px]">
                           ₹{version.estimated_cost?.toLocaleString('en-IN') || '0'}
                         </td>
-                        <td className="px-6 py-3 whitespace-nowrap min-w-[100px]">
+                        <td className="px-6 py-3 whitespace-nowrap w-[100px]">
                           <span className="text-xs px-2 py-0.5 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-full transition-colors">
                             {version.status || 'draft'}
                           </span>
                         </td>
-                        <td className="px-6 py-3 text-xs text-gray-500 dark:text-gray-400 transition-colors min-w-[200px]">
+                        <td className="px-6 py-3 text-xs text-gray-500 dark:text-gray-400 transition-colors w-[220px]">
                           <span className="italic">Previous version</span>
                         </td>
-                        <td className="px-6 py-3 whitespace-nowrap text-right text-xs font-medium min-w-[200px]">
+                        <td className="px-6 py-3 whitespace-nowrap text-right text-xs font-medium w-[220px]">
                           <Link
                             href={`/projects/${version.id}`}
                             className="text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 transition-colors"

@@ -229,6 +229,23 @@ export default function NewProjectPage() {
     setConversationHistory(prev => [...prev, successMessage]);
   };
 
+  const handleResetBoundary = () => {
+    if (!confirm('This will clear all polyhouses and allow you to redraw the boundary. Continue?')) {
+      return;
+    }
+
+    setPlanningResult(null);
+    setPlanningResultId(null);
+    setLandBoundary([]);
+
+    const message: ConversationMessage = {
+      role: 'assistant',
+      content: 'Boundary cleared. You can now draw a new boundary on the map.',
+      timestamp: new Date(),
+    };
+    setConversationHistory(prev => [...prev, message]);
+  };
+
   const handleSendMessage = async (message: string) => {
     const userMessage: ConversationMessage = {
       role: 'user',
@@ -241,6 +258,12 @@ export default function NewProjectPage() {
     // Handle special commands
     if (message.toLowerCase().includes('kml') || message.toLowerCase().includes('upload')) {
       fileInputRef.current?.click();
+      return;
+    }
+
+    // Handle redraw/change boundary request
+    if (message.toLowerCase().includes('redraw') || message.toLowerCase().includes('change boundary') || message.toLowerCase().includes('edit boundary') || message.toLowerCase().includes('reset boundary')) {
+      handleResetBoundary();
       return;
     }
 
@@ -451,7 +474,7 @@ export default function NewProjectPage() {
 
   const handleExport = async (type: 'quotation' | 'cad' | 'both') => {
     if (!planningResult) {
-      alert('Please create a plan first');
+      console.error('Please create a plan first');
       return;
     }
 
@@ -471,7 +494,6 @@ export default function NewProjectPage() {
           quotation: planningResult.quotation,
           createdAt: new Date().toISOString(),
         });
-        alert('Successfully generated both Technical Drawing and Quotation PDFs');
       } else if (type === 'cad') {
         // Generate only technical drawing
         const { generateTechnicalDrawing } = await import('@/lib/technicalDrawing');
@@ -495,7 +517,6 @@ export default function NewProjectPage() {
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
-        alert('Successfully generated Technical Drawing PDF');
       } else if (type === 'quotation') {
         // Generate only quotation
         const { generateProjectPDF } = await import('@/lib/pdfExport');
@@ -511,11 +532,9 @@ export default function NewProjectPage() {
           quotation: planningResult.quotation,
           createdAt: new Date().toISOString(),
         });
-        alert('Successfully generated Quotation PDF');
       }
     } catch (error) {
       console.error('Error generating PDF:', error);
-      alert(`Failed to generate ${type === 'both' ? 'PDFs' : 'PDF'}. Please try again.`);
     }
   };
 
@@ -588,15 +607,45 @@ export default function NewProjectPage() {
         <div className="flex items-center gap-3">
           {planningResult && (
             <>
-              {/* Export Button - Direct Download */}
+              {/* Redraw Boundary Button */}
               <button
-                onClick={() => handleExport('both')}
-                className="px-3 py-2 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors duration-150 flex items-center gap-1"
-                title="Export Quotation + CAD Drawing"
+                onClick={handleResetBoundary}
+                className="px-3 py-2 text-sm bg-orange-600 hover:bg-orange-700 text-white rounded-lg font-medium transition-colors duration-150 flex items-center gap-1"
+                title="Clear polyhouses and redraw boundary"
               >
-                <Download className="w-4 h-4" />
-                <span>Export</span>
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+                <span>Redraw</span>
               </button>
+
+              {/* Export Dropdown */}
+              <div className="relative group">
+                <button className="px-3 py-2 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors duration-150 flex items-center gap-1">
+                  <Download className="w-4 h-4" />
+                  <span>Export ▾</span>
+                </button>
+                <div className="absolute right-0 mt-1 w-32 bg-white dark:bg-gray-700 rounded-md shadow-lg border border-gray-200 dark:border-gray-600 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-10">
+                  <button
+                    onClick={() => handleExport('cad')}
+                    className="block w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors"
+                  >
+                    CAD
+                  </button>
+                  <button
+                    onClick={() => handleExport('quotation')}
+                    className="block w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors"
+                  >
+                    Quotation
+                  </button>
+                  <button
+                    onClick={() => handleExport('both')}
+                    className="block w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors rounded-b-md"
+                  >
+                    Both
+                  </button>
+                </div>
+              </div>
 
               <button
                 onClick={handleSaveProject}

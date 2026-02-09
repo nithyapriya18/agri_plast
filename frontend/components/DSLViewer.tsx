@@ -167,10 +167,10 @@ export function DSLQuickActions({
   onExplainLayout?: () => void;
 }) {
   const actions = [
-    { label: 'Show Pricing', onClick: onShowPricing, icon: '💰' },
-    { label: 'View Settings', onClick: onShowSettings, icon: '⚙️' },
-    { label: 'My Preferences', onClick: onShowLearning, icon: '🧠' },
-    { label: 'Explain Layout', onClick: onExplainLayout, icon: '📐' },
+    { label: 'Show Pricing', onClick: onShowPricing },
+    { label: 'View Settings', onClick: onShowSettings },
+    { label: 'My Preferences', onClick: onShowLearning },
+    { label: 'Explain Layout', onClick: onExplainLayout },
   ].filter(action => action.onClick);
 
   if (actions.length === 0) return null;
@@ -181,9 +181,8 @@ export function DSLQuickActions({
         <button
           key={idx}
           onClick={action.onClick}
-          className="px-3 py-1.5 text-sm bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg transition-all duration-150 flex items-center gap-2 border border-gray-200 dark:border-gray-700"
+          className="px-3 py-1.5 text-sm bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg transition-all duration-150 border border-gray-200 dark:border-gray-700"
         >
-          <span>{action.icon}</span>
           <span>{action.label}</span>
         </button>
       ))}

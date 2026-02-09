@@ -267,7 +267,7 @@ export default function TerrainInfoPanel({ terrainAnalysis, regulatoryCompliance
         {terrainAnalysis && terrainAnalysis.restrictedZones && terrainAnalysis.restrictedZones.length > 0 && (
           <div className="mt-2 pt-2 border-t border-gray-200">
             <p className="text-xs text-red-600 font-medium">
-              ⚠️ {terrainAnalysis.restrictedZones.length} restricted area(s) detected
+              Warning: {terrainAnalysis.restrictedZones.length} restricted area(s) detected
             </p>
             <p className="text-xs text-gray-500 mt-1">
               Use chat to override and build on restricted areas

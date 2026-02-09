@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { X, Upload, File, Download, Trash2, Eye } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 
@@ -35,11 +35,11 @@ export default function ProjectFilesModal({
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Load files when modal opens
-  useState(() => {
+  useEffect(() => {
     if (isOpen) {
       loadFiles();
     }
-  });
+  }, [isOpen, projectId]);
 
   const loadFiles = async () => {
     try {
