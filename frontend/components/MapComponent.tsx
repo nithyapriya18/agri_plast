@@ -57,13 +57,18 @@ export default function MapComponent({
     setMap(null);
   }, []);
 
-  // Cleanup drawing manager when not in edit mode or when polyhouses exist
+  // Cleanup drawing manager when polyhouses exist or edit mode is off
   useEffect(() => {
-    if (drawingManager && (!editMode || polyhouses.length > 0)) {
-      drawingManager.setMap(null);
-      setDrawingManager(null);
+    if (drawingManager) {
+      if (!editMode || polyhouses.length > 0 || (landBoundary && landBoundary.length > 0)) {
+        // Disable drawing mode first
+        drawingManager.setDrawingMode(null);
+        // Remove from map
+        drawingManager.setMap(null);
+        setDrawingManager(null);
+      }
     }
-  }, [editMode, polyhouses.length, drawingManager]);
+  }, [editMode, polyhouses.length, landBoundary, drawingManager]);
 
   // Handle drawing manager load
   const onDrawingManagerLoad = useCallback((drawingManager: google.maps.drawing.DrawingManager) => {
