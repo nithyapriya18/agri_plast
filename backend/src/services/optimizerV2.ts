@@ -87,6 +87,20 @@ export class PolyhouseOptimizerV2 {
     console.log('=' + '='.repeat(50));
     console.log(`Land area: ${(this.landArea.area / 10000).toFixed(2)} hectares (${this.landArea.area.toFixed(0)} sqm)`);
 
+    // DSL RULE: SUN ORIENTATION IS MANDATORY (cannot be disabled)
+    // Force enable solar orientation if not already enabled
+    if (!this.config.solarOrientation) {
+      this.config.solarOrientation = {
+        enabled: true,
+        latitudeDegrees: this.landArea.centroid.lat,
+        allowedDeviationDegrees: 15,
+      };
+    } else if (!this.config.solarOrientation.enabled) {
+      console.warn('⚠️  WARNING: solarOrientation.enabled was false - FORCING to true (DSL requirement)');
+      this.config.solarOrientation.enabled = true;
+    }
+    console.log(`☀️  Sun orientation: ENABLED (lat: ${this.config.solarOrientation.latitudeDegrees.toFixed(2)}°) - MANDATORY for crop growth`);
+
     const startTime = Date.now();
     const polyhouses: Polyhouse[] = [];
 
@@ -155,27 +169,36 @@ export class PolyhouseOptimizerV2 {
     // Determine orientations based on strategy
     let orientations = this.getOrientations();
 
-    // DSL RULE: UNIFORM ORIENTATION IS CRITICAL
-    // All polyhouses MUST face the same direction for:
+    // DSL RULE: UNIFORM ORIENTATION IS DEFAULT (can be overridden in settings/chat)
+    // All polyhouses SHOULD face the same direction for:
     // 1. Lower construction cost (simpler build sequence)
     // 2. Better access pathways (straight corridors)
     // 3. Easier maintenance (uniform infrastructure)
     // 4. Sun orientation alignment (optimal for all polyhouses)
     // Mixed orientations increase cost and complexity significantly
-    const allowMixedOrientations = false; // ENFORCED: Uniform orientation required
+    //
+    // Configuration: optimization.orientationStrategy
+    // - 'uniform' (default): All same direction - lowest cost
+    // - 'varied': Mixed orientations - higher cost but may fit irregular land
+    // - 'optimized': System decides based on land shape
+    const orientationStrategy = this.config.optimization?.orientationStrategy || 'uniform';
+    const allowMixedOrientations = orientationStrategy !== 'uniform';
+
+    console.log(`📐 Orientation strategy: "${orientationStrategy}" (from config.optimization.orientationStrategy)`);
 
     if (!allowMixedOrientations) {
       // Uniform orientation: Find best single orientation for all polyhouses
       // This ensures better access road layout, infrastructure symmetry, and cost efficiency
-      console.log('🔄 Finding best uniform orientation for all polyhouses (DSL requirement)...');
+      console.log('🔄 Finding best uniform orientation for all polyhouses (DEFAULT - lowest cost)...');
       orientations = [this.findBestGlobalOrientation(landPolygon, candidateSizes, orientations)];
       console.log(`   ✅ Using uniform orientation: ${orientations[0]}° (optimized for sun, access & cost)`);
     } else {
       // Mixed orientations: Each polyhouse can rotate independently to follow land contours
       // This enables "stepped" placement in slanting areas for maximum space utilization
-      console.log(`🔄 Using MIXED ORIENTATIONS strategy (stepped placement in slanting areas)`);
+      // WARNING: Higher cost and complexity - only use if land shape requires it
+      console.log(`⚠️  Using MIXED ORIENTATIONS strategy (higher cost, use only if needed)`);
       console.log(`   Testing ${orientations.length} angles per position:`, orientations.map(o => `${o}°`).join(', '));
-      console.log('   This maximizes space utilization by following land contours');
+      console.log('   Note: This increases construction cost and complexity');
     }
 
     // Track occupied areas

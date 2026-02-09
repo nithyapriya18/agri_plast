@@ -29,20 +29,28 @@
 - Only after placing maximum-sized polyhouses, fill remaining space with smaller ones
 - **Cost efficiency**: Fewer, larger polyhouses = lower material and installation cost
 
-### 2. UNIFORM ORIENTATION ⭐ CRITICAL
-- **All polyhouses MUST face the same or very similar direction**
-- Mixed orientations make construction difficult and expensive
-- Uniform orientation enables:
+### 2. UNIFORM ORIENTATION ⭐ CRITICAL (DEFAULT)
+- **All polyhouses SHOULD face the same direction (DEFAULT behavior)**
+- Can be overridden in Settings or via Chat to use mixed orientations
+- Configuration: `optimization.orientationStrategy`
+  - `'uniform'` (DEFAULT): All same direction - lowest cost ✅
+  - `'varied'`: Two primary orientations - moderate complexity
+  - `'optimized'`: System decides - tests many angles (higher cost)
+- Uniform orientation provides:
   - Easy pathway planning
   - Simplified construction sequencing
   - Better maintenance access
   - Lower overall cost
+- **⚠️ Mixed orientations increase cost by 20-30%** - only use if land shape requires it
 
-### 3. SUN ORIENTATION ⭐ MANDATORY
+### 3. SUN ORIENTATION ⭐ MANDATORY (CANNOT BE DISABLED)
 - **MUST consider sun direction** for optimal crop growth
-- Polyhouses should be oriented for maximum sunlight exposure
-- Typically east-west orientation for Indian climates
+- **ALWAYS ENABLED** - System will force-enable if disabled
+- Configuration: `solarOrientation.enabled` - must be `true`
+- Polyhouses oriented for maximum sunlight exposure based on latitude
+- Typically east-west gutter orientation for Indian climates (gable runs north-south)
 - Solar orientation takes precedence over other spatial considerations
+- **Cannot be overridden** - crop growth requires proper sun exposure
 
 ### 4. EASE OF ACCESS
 - **Pathways between polyhouses** are essential
