@@ -57,23 +57,53 @@ export default function MapComponent({
     setMap(null);
   }, []);
 
-  // Cleanup drawing manager when polyhouses exist or edit mode is off
+  // Aggressive cleanup: Remove all drawing controls when polyhouses exist
   useEffect(() => {
-    if (drawingManager) {
-      if (!editMode || polyhouses.length > 0 || (landBoundary && landBoundary.length > 0)) {
-        // Disable drawing mode first
+    if (!map) return;
+
+    // If polyhouses exist, forcibly remove any drawing manager
+    if (polyhouses.length > 0) {
+      if (drawingManager) {
         drawingManager.setDrawingMode(null);
-        // Remove from map
         drawingManager.setMap(null);
         setDrawingManager(null);
       }
+
+      // Also remove any drawing controls that might be lingering on the map
+      // This forcibly cleans up the DOM elements
+      const mapDiv = map.getDiv();
+      if (mapDiv) {
+        const drawingControls = mapDiv.querySelectorAll('.gmnoprint');
+        drawingControls.forEach((control) => {
+          // Check if it's a drawing control by looking for specific classes or content
+          const htmlControl = control as HTMLElement;
+          if (htmlControl.title?.includes('Draw') || htmlControl.querySelector('[title*="Draw"]')) {
+            htmlControl.style.display = 'none';
+          }
+        });
+      }
     }
-  }, [editMode, polyhouses.length, landBoundary, drawingManager]);
+  }, [map, polyhouses.length, drawingManager]);
+
+  // Cleanup drawing manager when edit mode is off or land boundary exists
+  useEffect(() => {
+    if (drawingManager && (!editMode || (landBoundary && landBoundary.length > 0))) {
+      drawingManager.setDrawingMode(null);
+      drawingManager.setMap(null);
+      setDrawingManager(null);
+    }
+  }, [editMode, landBoundary, drawingManager]);
 
   // Handle drawing manager load
   const onDrawingManagerLoad = useCallback((drawingManager: google.maps.drawing.DrawingManager) => {
+    // Don't set drawing manager if polyhouses already exist
+    if (polyhouses.length > 0) {
+      drawingManager.setDrawingMode(null);
+      drawingManager.setMap(null);
+      return;
+    }
     setDrawingManager(drawingManager);
-  }, []);
+  }, [polyhouses.length]);
 
   // Handle polygon complete
   const onPolygonComplete = useCallback((newPolygon: google.maps.Polygon) => {
@@ -371,7 +401,10 @@ export default function MapComponent({
           streetViewControl: false,
           fullscreenControl: true,
           draggableCursor: polyhouses.length > 0 ? 'default' : 'crosshair',
-          draggingCursor: 'move',
+          draggingCursor: polyhouses.length > 0 ? 'default' : 'move',
+          // Disable all drawing-related interactions when polyhouses exist
+          clickableIcons: polyhouses.length === 0,
+          disableDoubleClickZoom: false,
         }}
       >
         {/* Search Box */}
