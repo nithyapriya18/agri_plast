@@ -403,6 +403,7 @@ export default function DashboardPage() {
                     />
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-[140px]">Project</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-[130px]">Customer</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-[110px]">Land Area</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-[90px]">Polyhouses</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-[95px]">Utilization</th>
@@ -459,6 +460,56 @@ export default function DashboardPage() {
                           </div>
                         </div>
                       </td>
+
+                      {/* Customer Column - Editable */}
+                      <td className="px-6 py-4 text-sm w-[130px]">
+                        {editingField?.projectId === project.id && editingField?.field === 'customer_name' ? (
+                          <div className="flex flex-col gap-1">
+                            <input
+                              type="text"
+                              value={editValues[`${project.id}-customer_name`] || ''}
+                              onChange={(e) => setEditValues({ ...editValues, [`${project.id}-customer_name`]: e.target.value })}
+                              placeholder="Customer name"
+                              className="w-full px-2 py-1 border border-gray-300 dark:border-gray-600 rounded text-xs bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+                              autoFocus
+                            />
+                            <div className="flex gap-1">
+                              <button
+                                onClick={() => handleSaveEdit(project.id, 'customer_name')}
+                                className="px-2 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700"
+                              >
+                                Save
+                              </button>
+                              <button
+                                onClick={handleCancelEdit}
+                                className="px-2 py-1 text-xs bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-200 rounded hover:bg-gray-400 dark:hover:bg-gray-500"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div
+                            onClick={() => handleStartEdit(project.id, 'customer_name', project.customer_name)}
+                            className="cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 rounded px-2 py-1 transition-colors group"
+                            title="Click to edit customer name"
+                          >
+                            {project.customer_name ? (
+                              <div>
+                                <div className="text-gray-900 dark:text-gray-100 font-medium">{project.customer_name}</div>
+                                {project.customer_email && (
+                                  <div className="text-xs text-gray-500 dark:text-gray-400">{project.customer_email}</div>
+                                )}
+                              </div>
+                            ) : (
+                              <div className="text-gray-400 dark:text-gray-500 group-hover:text-gray-600 dark:group-hover:text-gray-300 italic text-xs">
+                                + Add customer
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </td>
+
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300 transition-colors w-[110px]">
                       {project.land_area_sqm.toFixed(0)} m²
                     </td>
