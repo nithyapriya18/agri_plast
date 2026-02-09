@@ -131,6 +131,7 @@ export interface PolyhouseConfiguration {
     minimizeCost: boolean; // Prefer simpler shapes
     preferLargerPolyhouses: boolean; // Fewer, larger polyhouses vs many small ones
     orientationStrategy: 'uniform' | 'varied' | 'optimized'; // How polyhouses should be oriented
+    fillGapsWithSmallerPolyhouses: boolean; // Fill remaining gaps with smaller polyhouses (500-4000 sqm) after placing large ones
   };
 }
 

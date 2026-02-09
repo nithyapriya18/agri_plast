@@ -168,6 +168,12 @@ WHEN USERS REQUEST CHANGES - TAKE ACTION:
 - Brief: "Aligning them uniformly..."
 - WARNING: Tell them this might reduce utilization if the land has angled corners
 
+**Large Polyhouses Only** (phrases like "only large polyhouses", "remove small ones", "just big polyhouses", "fewer larger polyhouses", "simplify layout", "only 1 hectare polyhouses"):
+- IMMEDIATELY trigger "[RECALCULATE:LARGE_ONLY]"
+- Brief: "Switching to large polyhouses only for simpler construction..."
+- This disables placement of smaller polyhouses and keeps only large ones (8000-10000 sqm)
+- Note: By default, the system fills gaps with medium/small polyhouses for maximum coverage
+
 **Fill Angled Corners** (phrases like "fill those corners", "angle the polyhouses", "grab that corner space"):
 - IMMEDIATELY trigger "[RECALCULATE:MAXIMIZE]"
 - Brief: "Angling polyhouses to fill those corners..."
@@ -366,7 +372,9 @@ When answering questions, consider the local climate and latitude when giving ad
     const hasRecalculateTag = response.includes('[RECALCULATE]') ||
            response.includes('[RECALCULATE:MAXIMIZE]') ||
            response.includes('[RECALCULATE:IGNORE_RESTRICTIONS]') ||
-           response.includes('[RECALCULATE:UNIFORM_ORIENTATION');
+           response.includes('[RECALCULATE:UNIFORM_ORIENTATION') ||
+           response.includes('[RECALCULATE:FILL_GAPS]') ||
+           response.includes('[RECALCULATE:LARGE_ONLY]');
 
     // Check for minimum blocks changes
     const hasMinimumBlocksChange = /minimum\s+blocks?\s+(?:per\s+polyhouse\s+)?(?:to\s+)?(\d+)/i.test(response);
@@ -380,6 +388,7 @@ When answering questions, consider the local climate and latitude when giving ad
       /aligning\s+them/i,
       /placing\s+(?:more\s+)?polyhouses/i,
       /adding\s+(?:more\s+)?polyhouses/i,
+      /adding\s+smaller\s+polyhouses/i,
       /adjusting\s+the\s+design/i,
       /modifying\s+the\s+layout/i,
       /re-optimizing/i,
@@ -446,6 +455,32 @@ When answering questions, consider the local climate and latitude when giving ad
 
       // Mark this as uniform orientation request
       changes._uniformOrientation = true;
+
+      return changes;
+    }
+
+    // Check for FILL GAPS request (re-enable if disabled)
+    if (response.includes('[RECALCULATE:FILL_GAPS]')) {
+      console.log('🏗️  User requested to FILL GAPS with smaller polyhouses');
+
+      // Enable gap-filling with smaller polyhouses
+      changes.optimization = {
+        ...currentPlan.configuration.optimization,
+        fillGapsWithSmallerPolyhouses: true,
+      };
+
+      return changes;
+    }
+
+    // Check for LARGE ONLY request (disable gap-filling)
+    if (response.includes('[RECALCULATE:LARGE_ONLY]')) {
+      console.log('🏢 User requested LARGE POLYHOUSES ONLY - disabling gap-filling');
+
+      // Disable gap-filling, only place large polyhouses
+      changes.optimization = {
+        ...currentPlan.configuration.optimization,
+        fillGapsWithSmallerPolyhouses: false,
+      };
 
       return changes;
     }

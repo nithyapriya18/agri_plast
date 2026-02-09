@@ -293,31 +293,38 @@ export class PolyhouseOptimizerV2 {
 
     console.log(`\n📊 Placement complete: ${polyhouses.length} large polyhouses, ${currentCoverage.toFixed(1)}% coverage`);
 
-    // SKIP SECOND AND THIRD PASSES - We want FEWER, LARGER polyhouses only!
-    // Manual design shows 6 large polyhouses is optimal for cost and maintenance
-    console.log(`\n✅ Strategy: FEWER LARGE POLYHOUSES (no gap-filling with small structures)`);
-    console.log(`   This reduces costs and simplifies construction/maintenance\n`);
+    // Check if gap-filling is enabled (default: true)
+    const fillGaps = this.config.optimization?.fillGapsWithSmallerPolyhouses ?? true;
 
-    // Return immediately - NO second or third pass
-    const finalCoverage = (polyhouses.reduce((sum, p) => sum + p.area, 0) / this.landArea.area) * 100;
-    const elapsedTime = Date.now() - startTime;
+    if (!fillGaps) {
+      // SKIP SECOND AND THIRD PASSES - User opted for FEWER, LARGER polyhouses only!
+      console.log(`\n✅ Strategy: FEWER LARGE POLYHOUSES (gap-filling disabled by user)`);
+      console.log(`   This reduces costs and simplifies construction/maintenance`);
+      console.log(`   💡 Gap-filling is normally enabled by default for maximum coverage\n`);
 
-    console.log('=' + '='.repeat(50));
-    console.log(`✅ Optimization complete in ${elapsedTime}ms`);
-    console.log(`   Placed ${polyhouses.length} polyhouses (target: ${this.TARGET_MIN_POLYHOUSES}-${this.TARGET_MAX_POLYHOUSES})`);
-    console.log(`   Land utilization: ${finalCoverage.toFixed(1)}% (target: ${this.TARGET_COVERAGE}%)`);
-    console.log(`   Average polyhouse size: ${(polyhouses.reduce((sum, p) => sum + p.area, 0) / polyhouses.length).toFixed(0)} sqm`);
-    console.log(`   Total polyhouse area: ${polyhouses.reduce((sum, p) => sum + p.area, 0).toFixed(0)} sqm`);
-    console.log('=' + '='.repeat(50) + '\n');
+      // Return immediately - NO second or third pass
+      const finalCoverage = (polyhouses.reduce((sum, p) => sum + p.area, 0) / this.landArea.area) * 100;
+      const elapsedTime = Date.now() - startTime;
 
-    // Assign sequential labels and colors
-    const labeledPolyhouses = assignLabelsAndColors(polyhouses);
-    console.log(`   Labels assigned: ${labeledPolyhouses.map(p => p.label).join(', ')}`);
+      console.log('=' + '='.repeat(50));
+      console.log(`✅ Optimization complete in ${elapsedTime}ms`);
+      console.log(`   Placed ${polyhouses.length} polyhouses (target: ${this.TARGET_MIN_POLYHOUSES}-${this.TARGET_MAX_POLYHOUSES})`);
+      console.log(`   Land utilization: ${finalCoverage.toFixed(1)}% (target: ${this.TARGET_COVERAGE}%)`);
+      console.log(`   Average polyhouse size: ${(polyhouses.reduce((sum, p) => sum + p.area, 0) / polyhouses.length).toFixed(0)} sqm`);
+      console.log(`   Total polyhouse area: ${polyhouses.reduce((sum, p) => sum + p.area, 0).toFixed(0)} sqm`);
+      console.log('=' + '='.repeat(50) + '\n');
 
-    return labeledPolyhouses;
+      // Assign sequential labels and colors
+      const labeledPolyhouses = assignLabelsAndColors(polyhouses);
+      console.log(`   Labels assigned: ${labeledPolyhouses.map(p => p.label).join(', ')}`);
 
-    // OLD CODE BELOW - DISABLED (second and third passes create too many small polyhouses)
-    /*
+      return labeledPolyhouses;
+    }
+
+    // GAP-FILLING ENABLED: Add smaller polyhouses to fill remaining spaces
+    console.log(`\n✅ Gap-filling ENABLED - Adding smaller polyhouses to fill remaining spaces...`);
+
+    // SECOND PASS: Fill gaps with medium-sized polyhouses (4000-8000 sqm)
     if (currentCoverage < 85) {
       const minAreaForGapFill = minAreaForFirst * 0.4; // Lower threshold: 40% of max
       console.log(`\n🎯 SECOND PASS: Filling gaps with polyhouses ≥${minAreaForGapFill}m² (including large sizes)...`);
@@ -333,20 +340,30 @@ export class PolyhouseOptimizerV2 {
 
       console.log(`  Using ${gapFillers.length} large gap-fillers (${gapFillers[0].area}-${gapFillers[gapFillers.length - 1].area} sqm)`);
 
-      // Use similar grid spacing as first pass
-      const mediumGridSpacing = gridSpacing;
+      // Use much coarser grid spacing for gap-filling (FAST performance)
+      const mediumGridSpacing = Math.min(gridSpacing * 3, 30); // 3x coarser than first pass, max 30m
       const medLatStep = mediumGridSpacing / 111320;
       const medLngStep = mediumGridSpacing / (111320 * Math.cos((minLat + maxLat) / 2 * Math.PI / 180));
       const medCols = Math.ceil((maxLng - minLng) / medLngStep);
       const medRows = Math.ceil((maxLat - minLat) / medLatStep);
 
-      console.log(`  Grid: ${medCols} × ${medRows} = ${medCols * medRows} positions`);
+      console.log(`  Grid: ${medCols} × ${medRows} = ${medCols * medRows} positions (using ${mediumGridSpacing.toFixed(0)}m spacing)`);
 
       let secondPassCount = 0;
-      const maxGapFillers = 20; // Allow enough polyhouses for good coverage
+      let secondPassIterations = 0;
+      const maxGapFillers = 10; // Limit to 10 additional polyhouses for faster completion
+      const maxIterations = Math.min(medCols * medRows, 500); // Safety limit - max 500 positions
 
       for (let row = 0; row < medRows; row++) {
         for (let col = 0; col < medCols; col++) {
+          secondPassIterations++;
+
+          // Safety check: prevent infinite loops
+          if (secondPassIterations > maxIterations) {
+            console.log(`  ⚠️ Reached iteration limit (${maxIterations}) - stopping second pass`);
+            break;
+          }
+
           // Stop if we've reached excellent utilization or max limit
           const currentUtilization = (polyhouses.reduce((sum, p) => sum + p.area, 0) / this.landArea.area) * 100;
           if (currentUtilization >= 85 || secondPassCount >= maxGapFillers) {
@@ -357,6 +374,11 @@ export class PolyhouseOptimizerV2 {
             }
             break;
           }
+
+          // Progress logging every 50 iterations for faster feedback
+          if (secondPassIterations % 50 === 0) {
+            console.log(`  ... checked ${secondPassIterations}/${maxIterations} positions, placed ${secondPassCount} polyhouses`);
+          }
           const lat = minLat + row * medLatStep;
           const lng = minLng + col * medLngStep;
           const position: Coordinate = { lat, lng };
@@ -366,11 +388,14 @@ export class PolyhouseOptimizerV2 {
             continue;
           }
 
-          // Test ALL angles to find the best one
+          // Test limited angles for faster gap-filling (use same orientations as placed polyhouses)
           let bestPolyhouse: Polyhouse | null = null;
           let bestArea = 0;
 
-          for (const rotation of orientations) {
+          // For gap-filling, only test 1-3 main orientations instead of all angles
+          const gapFillingOrientations = orientations.length > 3 ? [orientations[0], orientations[Math.floor(orientations.length / 2)]] : orientations;
+
+          for (const rotation of gapFillingOrientations) {
             for (const size of gapFillers) {
               const candidate: PolyhouseCandidate = {
                 gableLength: size.gable,
@@ -407,10 +432,10 @@ export class PolyhouseOptimizerV2 {
           }
         }
         // Break outer loop if limit reached
-        if (secondPassCount >= maxGapFillers) break;
+        if (secondPassCount >= maxGapFillers || secondPassIterations > maxIterations) break;
       }
 
-      console.log(`  ✅ Second pass: +${secondPassCount} polyhouses`);
+      console.log(`  ✅ Second pass: +${secondPassCount} polyhouses (checked ${secondPassIterations} positions)`);
     }
 
     // THIRD PASS: Fill remaining gaps with SMALL polyhouses if coverage < 70%
@@ -425,26 +450,41 @@ export class PolyhouseOptimizerV2 {
       if (smallSizes.length > 0) {
         console.log(`  Using ${smallSizes.length} small sizes (${smallSizes[smallSizes.length - 1].area}-${smallSizes[0].area} sqm)`);
 
-        // Use finer grid for small polyhouses
-        const smallGridSpacing = Math.min(gridSpacing * 0.5, 8); // Even finer grid
+        // Use coarse grid for small polyhouses (FAST performance)
+        const smallGridSpacing = Math.min(gridSpacing * 2, 20); // 2x coarser, max 20m
         const smallLatStep = smallGridSpacing / 111320;
         const smallLngStep = smallGridSpacing / (111320 * Math.cos((minLat + maxLat) / 2 * Math.PI / 180));
         const smallCols = Math.ceil((maxLng - minLng) / smallLngStep);
         const smallRows = Math.ceil((maxLat - minLat) / smallLatStep);
 
-        console.log(`  Grid: ${smallCols} × ${smallRows} = ${smallCols * smallRows} positions`);
+        console.log(`  Grid: ${smallCols} × ${smallRows} = ${smallCols * smallRows} positions (using ${smallGridSpacing.toFixed(0)}m spacing)`);
 
         let thirdPassCount = 0;
-        const maxSmallPolyhouses = 30;
+        let thirdPassIterations = 0;
+        const maxSmallPolyhouses = 10; // Limit to 10 small polyhouses for faster completion
+        const maxIterations = Math.min(smallCols * smallRows, 400); // Safety limit - max 400 positions
 
         for (let row = 0; row < smallRows; row++) {
           for (let col = 0; col < smallCols; col++) {
+            thirdPassIterations++;
+
+            // Safety check: prevent infinite loops
+            if (thirdPassIterations > maxIterations) {
+              console.log(`  ⚠️ Reached iteration limit (${maxIterations}) - stopping third pass`);
+              break;
+            }
+
             const currentUtilization = (polyhouses.reduce((sum, p) => sum + p.area, 0) / this.landArea.area) * 100;
             if (currentUtilization >= 75 || thirdPassCount >= maxSmallPolyhouses) {
               if (currentUtilization >= 75) {
                 console.log(`  ✅ Good utilization (${currentUtilization.toFixed(1)}%) - stopping third pass`);
               }
               break;
+            }
+
+            // Progress logging every 50 iterations for faster feedback
+            if (thirdPassIterations % 50 === 0) {
+              console.log(`  ... checked ${thirdPassIterations}/${maxIterations} positions, placed ${thirdPassCount} small polyhouses`);
             }
 
             const lat = minLat + row * smallLatStep;
@@ -459,7 +499,10 @@ export class PolyhouseOptimizerV2 {
             let bestPolyhouse: Polyhouse | null = null;
             let bestArea = 0;
 
-            for (const rotation of orientations) {
+            // For small polyhouses, only test main orientation for speed
+            const smallPolyhouseOrientations = orientations.length > 1 ? [orientations[0]] : orientations;
+
+            for (const rotation of smallPolyhouseOrientations) {
               for (const size of smallSizes) {
                 const candidate: PolyhouseCandidate = {
                   gableLength: size.gable,
@@ -493,14 +536,14 @@ export class PolyhouseOptimizerV2 {
             }
           }
 
-          if (thirdPassCount >= maxSmallPolyhouses) break;
+          if (thirdPassCount >= maxSmallPolyhouses || thirdPassIterations > maxIterations) break;
         }
 
-        console.log(`  ✅ Third pass: +${thirdPassCount} small polyhouses`);
+        console.log(`  ✅ Third pass: +${thirdPassCount} small polyhouses (checked ${thirdPassIterations} positions)`);
       }
     }
 
-    // OLD CODE - commented out (creates too many small polyhouses)
+    // Calculate final results
     const finalCoverage = (polyhouses.reduce((sum, p) => sum + p.area, 0) / this.landArea.area) * 100;
     const elapsedTime = Date.now() - startTime;
 
@@ -511,12 +554,11 @@ export class PolyhouseOptimizerV2 {
     console.log(`   Total polyhouse area: ${polyhouses.reduce((sum, p) => sum + p.area, 0).toFixed(0)} sqm`);
     console.log('='.repeat(52) + '\n');
 
-    // Assign sequential labels and colors (A, B, C... without gaps)
+    // Assign sequential labels and colors
     const labeledPolyhouses = assignLabelsAndColors(polyhouses);
     console.log(`   Labels assigned: ${labeledPolyhouses.map(p => p.label).join(', ')}`);
 
     return labeledPolyhouses;
-    */
   }
 
   /**

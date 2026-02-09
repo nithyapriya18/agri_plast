@@ -172,7 +172,7 @@ function LoginForm() {
         </div>
 
         <p className="text-center text-sm text-gray-600 dark:text-gray-400 mt-6 transition-colors">
-          © 2024 SiteSense. All rights reserved.
+          © 2026 SiteSense. All rights reserved.
         </p>
       </div>
     </div>

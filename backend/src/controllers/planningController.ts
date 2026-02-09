@@ -124,6 +124,7 @@ export async function createPlan(req: Request, res: Response) {
         minimizeCost: configInput?.optimization?.minimizeCost ?? true,
         preferLargerPolyhouses: configInput?.optimization?.preferLargerPolyhouses ?? true,
         orientationStrategy: configInput?.optimization?.orientationStrategy ?? 'optimized',
+        fillGapsWithSmallerPolyhouses: configInput?.optimization?.fillGapsWithSmallerPolyhouses ?? userSettings?.fill_gaps_with_smaller_polyhouses ?? true,
       },
       ...configInput, // Complete override via API
     };
@@ -380,9 +381,9 @@ async function processOptimizationAsync(
     // V2 optimizer doesn't support terrain/compliance yet
     // These features will be added in a future iteration
 
-    // Store result
-    const resultId = `result-${Date.now()}`;
-    planningResults.set(resultId, planningResult);
+    // Store result using landArea.id so frontend can look it up
+    planningResults.set(landArea.id, planningResult);
+    console.log(`✓ Stored planning result with ID: ${landArea.id}`);
 
     // Mark job as completed
     jobQueueService.completeJob(jobId, planningResult);

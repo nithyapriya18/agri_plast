@@ -96,6 +96,8 @@ export async function handleChat(req: Request, res: Response) {
       .replace(/\[RECALCULATE:UNIFORM_ORIENTATION[^\]]*\]/g, '')
       .replace('[RECALCULATE:MAXIMIZE]', '')
       .replace('[RECALCULATE:IGNORE_RESTRICTIONS]', '')
+      .replace('[RECALCULATE:FILL_GAPS]', '')
+      .replace('[RECALCULATE:LARGE_ONLY]', '')
       .replace('[RECALCULATE]', '')
       .trim();
 
