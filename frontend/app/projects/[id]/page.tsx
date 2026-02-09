@@ -521,7 +521,7 @@ export default function ProjectDetailPageSimplified({ params }: { params: Promis
 
   const handleExport = async (type: 'quotation' | 'cad' | 'both') => {
     if (!project) {
-      alert('Project data not available');
+      console.error('Project data not available');
       return;
     }
 
@@ -534,25 +534,28 @@ export default function ProjectDetailPageSimplified({ params }: { params: Promis
         const { generateProjectReports } = await import('@/lib/technicalDrawing');
         await generateProjectReports({
           projectName: project.name,
+          customerName: project.customer_name || 'Valued Customer',
           locationName: project.location_name || 'Unknown Location',
+          landBoundary: project.land_boundary,
           landAreaSqm: project.land_area_sqm,
           polyhouseCount: project.polyhouse_count,
-          totalCoverageSqm: project.polyhouse_count * 500, // Approximate
+          totalCoverageSqm: project.total_coverage_sqm,
           utilizationPercentage: project.utilization_percentage,
           polyhouses: planningResult.polyhouses || [],
           quotation: planningResult.quotation || {},
           createdAt: project.created_at,
         });
-        alert('Successfully generated both Technical Drawing and Quotation PDFs');
       } else if (type === 'cad') {
         // Generate only technical drawing
         const { generateTechnicalDrawing } = await import('@/lib/technicalDrawing');
         const blob = await generateTechnicalDrawing({
           projectName: project.name,
+          customerName: project.customer_name || 'Valued Customer',
           locationName: project.location_name || 'Unknown Location',
+          landBoundary: project.land_boundary,
           landAreaSqm: project.land_area_sqm,
           polyhouseCount: project.polyhouse_count,
-          totalCoverageSqm: project.polyhouse_count * 500,
+          totalCoverageSqm: project.total_coverage_sqm,
           utilizationPercentage: project.utilization_percentage,
           polyhouses: planningResult.polyhouses || [],
           createdAt: project.created_at,
@@ -566,27 +569,26 @@ export default function ProjectDetailPageSimplified({ params }: { params: Promis
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
-        alert('Successfully generated Technical Drawing PDF');
       } else if (type === 'quotation') {
         // Generate only quotation
         const { generateProjectPDF } = await import('@/lib/pdfExport');
         await generateProjectPDF({
           projectName: project.name,
+          customerName: project.customer_name,
+          customerEmail: project.customer_email,
           locationName: project.location_name || 'Unknown Location',
           landAreaSqm: project.land_area_sqm,
           polyhouseCount: project.polyhouse_count,
-          totalCoverageSqm: project.polyhouse_count * 500,
+          totalCoverageSqm: project.total_coverage_sqm,
           utilizationPercentage: project.utilization_percentage,
           estimatedCost: project.estimated_cost,
           polyhouses: planningResult.polyhouses || [],
           quotation: planningResult.quotation || {},
           createdAt: project.created_at,
         });
-        alert('Successfully generated Quotation PDF');
       }
     } catch (error) {
       console.error('Error generating PDF:', error);
-      alert(`Failed to generate ${type === 'both' ? 'PDFs' : 'PDF'}. Please try again.`);
     }
   };
 
@@ -668,15 +670,33 @@ export default function ProjectDetailPageSimplified({ params }: { params: Promis
               <Edit3 className="w-5 h-5" />
             </button>
 
-            {/* Export Button - Direct Download */}
-            <button
-              onClick={() => handleExport('both')}
-              className="px-3 py-2 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors duration-150 flex items-center gap-1"
-              title="Export Quotation + CAD Drawing"
-            >
-              <Download className="w-4 h-4" />
-              <span>Export</span>
-            </button>
+            {/* Export Dropdown */}
+            <div className="relative group">
+              <button className="px-3 py-2 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors duration-150 flex items-center gap-1">
+                <Download className="w-4 h-4" />
+                <span>Export ▾</span>
+              </button>
+              <div className="absolute right-0 mt-1 w-32 bg-white dark:bg-gray-700 rounded-md shadow-lg border border-gray-200 dark:border-gray-600 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50">
+                <button
+                  onClick={() => handleExport('cad')}
+                  className="block w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors rounded-t-md"
+                >
+                  CAD
+                </button>
+                <button
+                  onClick={() => handleExport('quotation')}
+                  className="block w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors"
+                >
+                  Quotation
+                </button>
+                <button
+                  onClick={() => handleExport('both')}
+                  className="block w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors rounded-b-md"
+                >
+                  Both
+                </button>
+              </div>
+            </div>
 
             {/* Save Changes */}
             {hasUnsavedChanges && (

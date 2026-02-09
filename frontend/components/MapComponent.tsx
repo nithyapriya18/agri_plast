@@ -436,22 +436,27 @@ export default function MapComponent({
 
       {/* Polyhouse Hover Tooltip */}
       {hoveredPolyhouse !== null && polyhouses[hoveredPolyhouse] && (
-        <div className="absolute bottom-6 left-6 z-10 bg-white dark:bg-gray-800 rounded-lg shadow-lg p-4 border border-gray-200 dark:border-gray-700">
+        <div className="absolute bottom-6 left-6 z-10 bg-white dark:bg-gray-800 rounded-lg shadow-lg p-4 border border-gray-200 dark:border-gray-700 max-w-xs">
           <div className="text-sm">
-            <div className="font-bold text-gray-900 dark:text-white mb-1">
-              Polyhouse #{hoveredPolyhouse + 1}
+            <div className="font-bold text-gray-900 dark:text-white mb-2 text-base">
+              {polyhouses[hoveredPolyhouse].label || `Polyhouse ${hoveredPolyhouse + 1}`}
             </div>
-            <div className="text-gray-600 dark:text-gray-400">
-              Area: {polyhouses[hoveredPolyhouse].area.toFixed(0)} m²
-            </div>
-            <div className="text-gray-600 dark:text-gray-400">
-              Dimensions: {polyhouses[hoveredPolyhouse].gableLength?.toFixed(1)}m × {polyhouses[hoveredPolyhouse].gutterWidth?.toFixed(1)}m
-            </div>
-            {polyhouses[hoveredPolyhouse].gableLength && polyhouses[hoveredPolyhouse].gutterWidth && (
-              <div className="text-gray-600 dark:text-gray-400">
-                Blocks: {Math.floor(polyhouses[hoveredPolyhouse].gableLength / 8) * Math.floor(polyhouses[hoveredPolyhouse].gutterWidth / 4)}
+            <div className="space-y-1">
+              <div className="text-gray-600 dark:text-gray-400 flex justify-between">
+                <span className="font-medium">Size:</span>
+                <span>{polyhouses[hoveredPolyhouse].area.toFixed(0)} m² ({(polyhouses[hoveredPolyhouse].area / 10000).toFixed(2)} ha)</span>
               </div>
-            )}
+              <div className="text-gray-600 dark:text-gray-400 flex justify-between">
+                <span className="font-medium">Dimensions:</span>
+                <span>{polyhouses[hoveredPolyhouse].gableLength?.toFixed(1)}m × {polyhouses[hoveredPolyhouse].gutterWidth?.toFixed(1)}m</span>
+              </div>
+              {polyhouses[hoveredPolyhouse].gableLength && polyhouses[hoveredPolyhouse].gutterWidth && (
+                <div className="text-gray-600 dark:text-gray-400 flex justify-between">
+                  <span className="font-medium">Blocks:</span>
+                  <span>{Math.floor(polyhouses[hoveredPolyhouse].gableLength / 8) * Math.floor(polyhouses[hoveredPolyhouse].gutterWidth / 4)}</span>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}
